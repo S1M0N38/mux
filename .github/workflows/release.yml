@@ -4,12 +4,17 @@ on:
   release:
     types: [published]
   workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag to release (e.g., v1.2.3). If provided, will checkout and release this tag regardless of current branch.'
+        required: false
+        type: string
 
 permissions:
   contents: write # Required for electron-builder to upload release assets
 
 env:
-  RELEASE_TAG: ${{ github.event.release.tag_name || github.ref_name }}
+  RELEASE_TAG: ${{ inputs.tag || github.event.release.tag_name || github.ref_name }}
 
 jobs:
   preflight:
@@ -23,9 +28,13 @@ jobs:
             exit 1
           fi
 
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [[ "$GITHUB_REF" != refs/tags/* ]]; then
-            echo "::error::workflow_dispatch runs must target a tag ref. Current ref: $GITHUB_REF"
-            exit 1
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            if [ -n "${{ inputs.tag }}" ]; then
+              echo "workflow_dispatch with explicit tag input: ${{ inputs.tag }}"
+            elif [[ "$GITHUB_REF" != refs/tags/* ]]; then
+              echo "::error::workflow_dispatch runs must either provide a 'tag' input or target a tag ref. Current ref: $GITHUB_REF"
+              exit 1
+            fi
           fi
 
           echo "Publishing tag $RELEASE_TAG"
@@ -38,6 +47,7 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
         with:
+          ref: ${{ inputs.tag || github.ref }}
           fetch-depth: 0 # Required for git describe to find tags
 
       - uses: ./.github/actions/setup-mux
@@ -67,6 +77,7 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
         with:
+          ref: ${{ inputs.tag || github.ref }}
           fetch-depth: 0 # Required for git describe to find tags
 
       - uses: ./.github/actions/setup-mux
@@ -89,6 +100,7 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
         with:
+          ref: ${{ inputs.tag || github.ref }}
           fetch-depth: 0 # Required for git describe to find tags
 
       - uses: ./.github/actions/setup-mux
@@ -140,6 +152,7 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
         with:
+          ref: ${{ inputs.tag || github.ref }}
           fetch-depth: 0 # Required for git describe to find tags
 
       - uses: ./.github/actions/setup-mux
