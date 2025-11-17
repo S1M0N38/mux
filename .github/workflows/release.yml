@@ -92,9 +92,7 @@ jobs:
 
   build-vscode-extension:
     name: Build and Release VS Code Extension
-    needs:
-      - preflight
-      - build-macos
+    needs: preflight
     runs-on: ${{ github.repository_owner == 'coder' && 'depot-ubuntu-22.04-16' || 'ubuntu-latest' }}
     steps:
       - name: Checkout code
