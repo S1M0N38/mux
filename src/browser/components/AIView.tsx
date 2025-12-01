@@ -87,8 +87,14 @@ const AIViewInner: React.FC<AIViewProps> = ({
   const workspaceUsage = useWorkspaceUsage(workspaceId);
   const { options } = useProviderOptions();
   const use1M = options.anthropic?.use1MContext ?? false;
-  const { enabled: autoCompactionEnabled, threshold: autoCompactionThreshold } =
-    useAutoCompactionSettings(workspaceId);
+  // Get pending model for auto-compaction settings (threshold is per-model)
+  const pendingSendOptions = useSendMessageOptions(workspaceId);
+  const pendingModel = pendingSendOptions.model;
+
+  const { threshold: autoCompactionThreshold } = useAutoCompactionSettings(
+    workspaceId,
+    pendingModel
+  );
   const handledModelErrorsRef = useRef<Set<string>>(new Set());
 
   useEffect(() => {
@@ -121,9 +127,6 @@ const AIViewInner: React.FC<AIViewProps> = ({
     undefined
   );
 
-  // Use send options for auto-compaction check
-  const pendingSendOptions = useSendMessageOptions(workspaceId);
-
   // Track if we've already triggered force compaction for this stream
   const forceCompactionTriggeredRef = useRef<string | null>(null);
 
@@ -133,16 +136,10 @@ const AIViewInner: React.FC<AIViewProps> = ({
   // Get active stream message ID for token counting
   const activeStreamMessageId = aggregator.getActiveStreamMessageId();
 
-  // Use pending send model for auto-compaction check, not the last stream's model.
-  // This ensures the threshold is based on the model the user will actually send with,
-  // preventing context-length errors when switching from a large-context to smaller model.
-  const pendingModel = pendingSendOptions.model;
-
   const autoCompactionResult = checkAutoCompaction(
     workspaceUsage,
     pendingModel,
     use1M,
-    autoCompactionEnabled,
     autoCompactionThreshold / 100
   );
 
@@ -215,6 +212,11 @@ const AIViewInner: React.FC<AIViewProps> = ({
   // Handler for review notes from Code Review tab
   const handleReviewNote = useCallback((note: string) => {
     chatInputAPI.current?.appendText(note);
+  }, []);
+
+  // Handler for manual compaction from CompactionWarning click
+  const handleCompactClick = useCallback(() => {
+    chatInputAPI.current?.prependText("/compact\n");
   }, []);
 
   // Thinking level state from context
@@ -573,6 +575,7 @@ const AIViewInner: React.FC<AIViewProps> = ({
           <CompactionWarning
             usagePercentage={autoCompactionResult.usagePercentage}
             thresholdPercentage={autoCompactionResult.thresholdPercentage}
+            onCompactClick={handleCompactClick}
           />
         )}
         <ChatInput
