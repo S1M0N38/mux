@@ -65,6 +65,9 @@ import { cn } from "@/common/lib/utils";
 import { CreationControls } from "./CreationControls";
 import { useCreationWorkspace } from "./useCreationWorkspace";
 import { useTutorial } from "@/browser/contexts/TutorialContext";
+import { useVoiceInput } from "@/browser/hooks/useVoiceInput";
+import { VoiceInputButton } from "./VoiceInputButton";
+import { WaveformBars } from "./WaveformBars";
 
 const LEADING_COMMAND_NOISE = /^(?:\s|\u200B|\u200C|\u200D|\u200E|\u200F|\uFEFF)+/;
 
@@ -153,6 +156,24 @@ export const ChatInput: React.FC<ChatInputProps> = (props) => {
     listener: true,
   });
   const { startSequence: startTutorial } = useTutorial();
+
+  // Track if OpenAI API key is configured for voice input
+  const [openAIKeySet, setOpenAIKeySet] = useState(false);
+
+  // Voice input - appends transcribed text to input
+  const voiceInput = useVoiceInput({
+    onTranscript: (text) => {
+      setInput((prev) => {
+        const separator = prev.length > 0 && !prev.endsWith(" ") ? " " : "";
+        return prev + separator + text;
+      });
+    },
+    onError: (error) => {
+      setToast({ id: Date.now().toString(), type: "error", message: error });
+    },
+    onSend: () => void handleSend(),
+    openAIKeySet,
+  });
 
   // Start creation tutorial when entering creation mode
   useEffect(() => {
@@ -370,6 +391,28 @@ export const ChatInput: React.FC<ChatInputProps> = (props) => {
     };
   }, []);
 
+  // Check if OpenAI API key is configured (for voice input)
+  useEffect(() => {
+    let isMounted = true;
+
+    const checkOpenAIKey = async () => {
+      try {
+        const config = await window.api.providers.getConfig();
+        if (isMounted) {
+          setOpenAIKeySet(config.openai?.apiKeySet ?? false);
+        }
+      } catch (error) {
+        console.error("Failed to check OpenAI API key:", error);
+      }
+    };
+
+    void checkOpenAIKey();
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
   // Allow external components (e.g., CommandPalette, Queued message edits) to insert text
   useEffect(() => {
     const handler = (e: Event) => {
@@ -436,6 +479,42 @@ export const ChatInput: React.FC<ChatInputProps> = (props) => {
     return () =>
       window.removeEventListener(CUSTOM_EVENTS.THINKING_LEVEL_TOAST, handler as EventListener);
   }, [variant, props, setToast]);
+
+  // Voice input: command palette toggle + global recording keybinds
+  useEffect(() => {
+    if (!voiceInput.shouldShowUI) return;
+
+    const handleToggle = () => {
+      if (!voiceInput.isApiKeySet) {
+        setToast({
+          id: Date.now().toString(),
+          type: "error",
+          message: "Voice input requires OpenAI API key. Configure in Settings → Providers.",
+        });
+        return;
+      }
+      voiceInput.toggle();
+    };
+
+    // Global keybinds only active during recording
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (voiceInput.state !== "recording") return;
+      if (e.key === " ") {
+        e.preventDefault();
+        voiceInput.stop({ send: true });
+      } else if (e.key === "Escape") {
+        e.preventDefault();
+        voiceInput.cancel();
+      }
+    };
+
+    window.addEventListener(CUSTOM_EVENTS.TOGGLE_VOICE_INPUT, handleToggle as EventListener);
+    window.addEventListener("keydown", handleKeyDown);
+    return () => {
+      window.removeEventListener(CUSTOM_EVENTS.TOGGLE_VOICE_INPUT, handleToggle as EventListener);
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [voiceInput, setToast]);
 
   // Auto-focus chat input when workspace changes (workspace only)
   const workspaceIdForFocus = variant === "workspace" ? props.workspaceId : null;
@@ -768,6 +847,34 @@ export const ChatInput: React.FC<ChatInputProps> = (props) => {
       return;
     }
 
+    // Handle voice input toggle (Ctrl+D / Cmd+D)
+    if (matchesKeybind(e, KEYBINDS.TOGGLE_VOICE_INPUT) && voiceInput.shouldShowUI) {
+      e.preventDefault();
+      if (!voiceInput.isApiKeySet) {
+        setToast({
+          id: Date.now().toString(),
+          type: "error",
+          message: "Voice input requires OpenAI API key. Configure in Settings → Providers.",
+        });
+        return;
+      }
+      voiceInput.toggle();
+      return;
+    }
+
+    // Space on empty input starts voice recording
+    if (
+      e.key === " " &&
+      input.trim() === "" &&
+      voiceInput.shouldShowUI &&
+      voiceInput.isApiKeySet &&
+      voiceInput.state === "idle"
+    ) {
+      e.preventDefault();
+      voiceInput.start();
+      return;
+    }
+
     // Handle open model selector
     if (matchesKeybind(e, KEYBINDS.OPEN_MODEL_SELECTOR)) {
       e.preventDefault();
@@ -896,33 +1003,81 @@ export const ChatInput: React.FC<ChatInputProps> = (props) => {
             anchorRef={variant === "creation" ? inputRef : undefined}
           />
 
-          <div className="flex items-end" data-component="ChatInputControls">
-            <VimTextArea
-              ref={inputRef}
-              value={input}
-              isEditing={!!editingMessage}
-              mode={mode}
-              onChange={setInput}
-              onKeyDown={handleKeyDown}
-              onPaste={handlePaste}
-              onDragOver={handleDragOver}
-              onDrop={handleDrop}
-              suppressKeys={showCommandSuggestions ? COMMAND_SUGGESTION_KEYS : undefined}
-              placeholder={placeholder}
-              disabled={!editingMessage && (disabled || isSending)}
-              aria-label={editingMessage ? "Edit your last message" : "Message Claude"}
-              aria-autocomplete="list"
-              aria-controls={
-                showCommandSuggestions && commandSuggestions.length > 0 ? commandListId : undefined
-              }
-              aria-expanded={showCommandSuggestions && commandSuggestions.length > 0}
-            />
+          <div className="relative flex items-end" data-component="ChatInputControls">
+            {/* Recording/transcribing overlay - replaces textarea when active */}
+            {voiceInput.state !== "idle" ? (
+              <button
+                type="button"
+                onClick={voiceInput.state === "recording" ? voiceInput.toggle : undefined}
+                disabled={voiceInput.state === "transcribing"}
+                className={cn(
+                  "mb-1 flex min-h-[60px] w-full items-center justify-center gap-3 rounded-md border px-4 py-4 transition-all focus:outline-none",
+                  voiceInput.state === "recording"
+                    ? "cursor-pointer border-blue-500 bg-blue-500/10"
+                    : "cursor-wait border-amber-500 bg-amber-500/10"
+                )}
+                aria-label={voiceInput.state === "recording" ? "Stop recording" : "Transcribing..."}
+              >
+                <WaveformBars
+                  colorClass={voiceInput.state === "recording" ? "bg-blue-500" : "bg-amber-500"}
+                />
+                <span
+                  className={cn(
+                    "text-sm font-medium",
+                    voiceInput.state === "recording" ? "text-blue-500" : "text-amber-500"
+                  )}
+                >
+                  {voiceInput.state === "recording"
+                    ? `Recording... space to send, ${formatKeybind(KEYBINDS.TOGGLE_VOICE_INPUT)} to stop, esc to cancel`
+                    : "Transcribing..."}
+                </span>
+                <WaveformBars
+                  colorClass={voiceInput.state === "recording" ? "bg-blue-500" : "bg-amber-500"}
+                  mirrored
+                />
+              </button>
+            ) : (
+              <>
+                <VimTextArea
+                  ref={inputRef}
+                  value={input}
+                  isEditing={!!editingMessage}
+                  mode={mode}
+                  onChange={setInput}
+                  onKeyDown={handleKeyDown}
+                  onPaste={handlePaste}
+                  onDragOver={handleDragOver}
+                  onDrop={handleDrop}
+                  suppressKeys={showCommandSuggestions ? COMMAND_SUGGESTION_KEYS : undefined}
+                  placeholder={placeholder}
+                  disabled={!editingMessage && (disabled || isSending)}
+                  aria-label={editingMessage ? "Edit your last message" : "Message Claude"}
+                  aria-autocomplete="list"
+                  aria-controls={
+                    showCommandSuggestions && commandSuggestions.length > 0
+                      ? commandListId
+                      : undefined
+                  }
+                  aria-expanded={showCommandSuggestions && commandSuggestions.length > 0}
+                />
+                {/* Floating voice input button inside textarea */}
+                <div className="absolute right-2 bottom-2">
+                  <VoiceInputButton
+                    state={voiceInput.state}
+                    isApiKeySet={voiceInput.isApiKeySet}
+                    shouldShowUI={voiceInput.shouldShowUI}
+                    onToggle={voiceInput.toggle}
+                    disabled={disabled || isSending}
+                  />
+                </div>
+              </>
+            )}
           </div>
 
           {/* Image attachments */}
           <ImageAttachments images={imageAttachments} onRemove={handleRemoveImage} />
 
-          <div className="flex flex-col gap-1" data-component="ChatModeToggles">
+          <div className="flex flex-col gap-0.5" data-component="ChatModeToggles">
             {/* Editing indicator - workspace only */}
             {variant === "workspace" && editingMessage && (
               <div className="text-edit-mode text-[11px] font-medium">
@@ -930,7 +1085,7 @@ export const ChatInput: React.FC<ChatInputProps> = (props) => {
               </div>
             )}
 
-            <div className="@container flex flex-wrap items-center gap-x-3 gap-y-2">
+            <div className="@container flex flex-wrap items-center gap-x-3 gap-y-1">
               {/* Model Selector - always visible */}
               <div
                 className="flex items-center"
@@ -1012,7 +1167,7 @@ export const ChatInput: React.FC<ChatInputProps> = (props) => {
                     disabled={!canSend}
                     aria-label="Send message"
                     className={cn(
-                      "inline-flex items-center gap-1 rounded-sm border border-border-light px-2 py-1 text-[11px] font-medium text-white transition-colors duration-200 disabled:opacity-50",
+                      "inline-flex items-center gap-1 rounded-sm border border-border-light px-1.5 py-0.5 text-[11px] font-medium text-white transition-colors duration-200 disabled:opacity-50",
                       mode === "plan"
                         ? "bg-plan-mode hover:bg-plan-mode-hover disabled:hover:bg-plan-mode"
                         : "bg-exec-mode hover:bg-exec-mode-hover disabled:hover:bg-exec-mode"
