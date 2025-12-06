@@ -36,9 +36,7 @@ Host ovh-1
 
 ## Authentication
 
-<Info>
-  As we delegate to `ssh`, this is really an abbreviated reference of how `ssh` authenticates.
-</Info>
+<Info>As we delegate to `ssh`, this is really an abbreviated reference of how `ssh` authenticates.</Info>
 
 There are a few practical ways to set up authentication.
 

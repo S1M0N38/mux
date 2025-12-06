@@ -13,6 +13,7 @@ Even with consistent support at the protocol layer, we have found that different
 
 Here's a snippet from `src/node/services/systemMessage.ts` which is our shared system prompt (minus tools).
 
+
 {/* BEGIN SYSTEM_PROMPT_DOCS */}
 
 ```typescript
