@@ -8,8 +8,10 @@ import React, {
 } from "react";
 import { cn } from "@/common/lib/utils";
 import { Settings, Star } from "lucide-react";
+import { GatewayIcon } from "./icons/GatewayIcon";
 import { TooltipWrapper, Tooltip } from "./Tooltip";
 import { useSettings } from "@/browser/contexts/SettingsContext";
+import { useGateway } from "@/browser/hooks/useGatewayModels";
 
 interface ModelSelectorProps {
   value: string;
@@ -27,6 +29,7 @@ export interface ModelSelectorRef {
 export const ModelSelector = forwardRef<ModelSelectorRef, ModelSelectorProps>(
   ({ value, onChange, recentModels, onComplete, defaultModel, onSetDefaultModel }, ref) => {
     const { open: openSettings } = useSettings();
+    const gateway = useGateway();
     const [isEditing, setIsEditing] = useState(false);
     const [inputValue, setInputValue] = useState(value);
     const [error, setError] = useState<string | null>(null);
@@ -190,8 +193,17 @@ export const ModelSelector = forwardRef<ModelSelectorRef, ModelSelectorProps>(
     }, [highlightedIndex]);
 
     if (!isEditing) {
+      const gatewayActive = gateway.isModelRoutingThroughGateway(value);
       return (
         <div ref={containerRef} className="relative flex items-center gap-1">
+          {gatewayActive && (
+            <TooltipWrapper inline>
+              <GatewayIcon className="text-accent h-3 w-3 shrink-0" active />
+              <Tooltip className="tooltip" align="center">
+                Using Mux Gateway
+              </Tooltip>
+            </TooltipWrapper>
+          )}
           <div
             className="text-muted-light font-monospace dir-rtl hover:bg-hover max-w-36 cursor-pointer truncate rounded-sm px-1 py-0.5 text-left font-mono text-[10px] leading-[11px] transition-colors duration-200"
             onClick={handleClick}
@@ -250,36 +262,74 @@ export const ModelSelector = forwardRef<ModelSelectorRef, ModelSelectorProps>(
                   )}
                   onClick={() => handleSelectModel(model)}
                 >
-                  <div className="grid w-full grid-cols-[1fr_24px] items-center gap-2">
+                  <div className="grid w-full grid-cols-[1fr_auto] items-center gap-2">
                     <span className="min-w-0 truncate">{model}</span>
-                    {onSetDefaultModel && (
-                      <TooltipWrapper inline>
-                        <button
-                          type="button"
-                          onMouseDown={(e) => e.preventDefault()}
-                          onClick={(e) => handleSetDefault(e, model)}
-                          className={cn(
-                            "flex items-center justify-center rounded-sm border px-1 py-0.5 transition-colors duration-150",
-                            defaultModel === model
-                              ? "text-yellow-400 border-yellow-400/40 cursor-default"
-                              : "text-muted-light border-border-light/40 hover:border-foreground/60 hover:text-foreground"
-                          )}
-                          aria-label={
-                            defaultModel === model
+                    <div className="flex items-center gap-0.5">
+                      {/* Gateway toggle */}
+                      {gateway.canToggleModel(model) && (
+                        <TooltipWrapper inline>
+                          <button
+                            type="button"
+                            onMouseDown={(e) => e.preventDefault()}
+                            onClick={(e) => {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              gateway.toggleModelGateway(model);
+                            }}
+                            className={cn(
+                              "flex items-center justify-center rounded-sm border px-1 py-0.5 transition-colors duration-150",
+                              gateway.modelUsesGateway(model)
+                                ? "text-accent border-accent/40"
+                                : "text-muted-light border-border-light/40 hover:border-foreground/60 hover:text-foreground"
+                            )}
+                            aria-label={
+                              gateway.modelUsesGateway(model)
+                                ? "Disable Mux Gateway"
+                                : "Enable Mux Gateway"
+                            }
+                          >
+                            <GatewayIcon
+                              className="h-3 w-3"
+                              active={gateway.modelUsesGateway(model)}
+                            />
+                          </button>
+                          <Tooltip className="tooltip" align="center">
+                            {gateway.modelUsesGateway(model)
+                              ? "Using Mux Gateway"
+                              : "Use Mux Gateway"}
+                          </Tooltip>
+                        </TooltipWrapper>
+                      )}
+                      {/* Default model toggle */}
+                      {onSetDefaultModel && (
+                        <TooltipWrapper inline>
+                          <button
+                            type="button"
+                            onMouseDown={(e) => e.preventDefault()}
+                            onClick={(e) => handleSetDefault(e, model)}
+                            className={cn(
+                              "flex items-center justify-center rounded-sm border px-1 py-0.5 transition-colors duration-150",
+                              defaultModel === model
+                                ? "text-yellow-400 border-yellow-400/40 cursor-default"
+                                : "text-muted-light border-border-light/40 hover:border-foreground/60 hover:text-foreground"
+                            )}
+                            aria-label={
+                              defaultModel === model
+                                ? "Current default model"
+                                : "Set as default model"
+                            }
+                            disabled={defaultModel === model}
+                          >
+                            <Star className="h-3 w-3" />
+                          </button>
+                          <Tooltip className="tooltip" align="center">
+                            {defaultModel === model
                               ? "Current default model"
-                              : "Set as default model"
-                          }
-                          disabled={defaultModel === model}
-                        >
-                          <Star className="h-3 w-3" />
-                        </button>
-                        <Tooltip className="tooltip" align="center">
-                          {defaultModel === model
-                            ? "Current default model"
-                            : "Set as default model"}
-                        </Tooltip>
-                      </TooltipWrapper>
-                    )}
+                              : "Set as default model"}
+                          </Tooltip>
+                        </TooltipWrapper>
+                      )}
+                    </div>
                   </div>
                 </div>
               ))

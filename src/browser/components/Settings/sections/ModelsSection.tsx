@@ -3,9 +3,13 @@ import { Plus, Loader2 } from "lucide-react";
 import { SUPPORTED_PROVIDERS, PROVIDER_DISPLAY_NAMES } from "@/common/constants/providers";
 import { KNOWN_MODELS } from "@/common/constants/knownModels";
 import { useModelLRU } from "@/browser/hooks/useModelLRU";
+import { useGateway } from "@/browser/hooks/useGatewayModels";
 import { ModelRow } from "./ModelRow";
 import { useAPI } from "@/browser/contexts/API";
 import { useProvidersConfig } from "@/browser/hooks/useProvidersConfig";
+
+// Providers to exclude from the custom models UI (handled specially or internal)
+const HIDDEN_PROVIDERS = new Set(["mux-gateway"]);
 
 interface NewModelForm {
   provider: string;
@@ -25,6 +29,7 @@ export function ModelsSection() {
   const [editing, setEditing] = useState<EditingState | null>(null);
   const [error, setError] = useState<string | null>(null);
   const { defaultModel, setDefaultModel } = useModelLRU();
+  const gateway = useGateway();
 
   // Check if a model already exists (for duplicate prevention)
   const modelExists = useCallback(
@@ -125,10 +130,12 @@ export function ModelsSection() {
     );
   }
 
-  // Get all custom models across providers
+  // Get all custom models across providers (excluding hidden providers like mux-gateway)
   const getCustomModels = (): Array<{ provider: string; modelId: string; fullId: string }> => {
     const models: Array<{ provider: string; modelId: string; fullId: string }> = [];
     for (const [provider, providerConfig] of Object.entries(config)) {
+      // Skip hidden providers (mux-gateway models are accessed via the cloud toggle, not listed separately)
+      if (HIDDEN_PROVIDERS.has(provider)) continue;
       if (providerConfig.models) {
         for (const modelId of providerConfig.models) {
           models.push({ provider, modelId, fullId: `${provider}:${modelId}` });
@@ -213,6 +220,7 @@ export function ModelsSection() {
               editError={isModelEditing ? error : undefined}
               saving={false}
               hasActiveEdit={editing !== null}
+              isGatewayEnabled={gateway.modelUsesGateway(model.fullId)}
               onSetDefault={() => setDefaultModel(model.fullId)}
               onStartEdit={() => handleStartEdit(model.provider, model.modelId)}
               onSaveEdit={handleSaveEdit}
@@ -221,6 +229,11 @@ export function ModelsSection() {
                 setEditing((prev) => (prev ? { ...prev, newModelId: value } : null))
               }
               onRemove={() => handleRemoveModel(model.provider, model.modelId)}
+              onToggleGateway={
+                gateway.canToggleModel(model.fullId)
+                  ? () => gateway.toggleModelGateway(model.fullId)
+                  : undefined
+              }
             />
           );
         })}
@@ -241,7 +254,13 @@ export function ModelsSection() {
             isCustom={false}
             isDefault={defaultModel === model.fullId}
             isEditing={false}
+            isGatewayEnabled={gateway.modelUsesGateway(model.fullId)}
             onSetDefault={() => setDefaultModel(model.fullId)}
+            onToggleGateway={
+              gateway.canToggleModel(model.fullId)
+                ? () => gateway.toggleModelGateway(model.fullId)
+                : undefined
+            }
           />
         ))}
       </div>
