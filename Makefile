@@ -47,7 +47,7 @@ include fmt.mk
 .PHONY: build-renderer version build-icons build-static
 .PHONY: lint lint-fix typecheck typecheck-react-native static-check
 .PHONY: test test-unit test-integration test-watch test-coverage test-e2e smoke-test
-.PHONY: dist dist-mac dist-win dist-linux
+.PHONY: dist dist-mac dist-win dist-linux install-mac-arm64
 .PHONY: vscode-ext vscode-ext-install
 .PHONY: docs-server check-docs-links
 .PHONY: storybook storybook-build test-storybook chromatic
@@ -348,6 +348,12 @@ dist-mac-x64: build ## Build macOS x64 distributable only
 dist-mac-arm64: build ## Build macOS arm64 distributable only
 	@echo "Building macOS arm64..."
 	@bun x electron-builder --mac --arm64 --publish never
+
+install-mac-arm64: dist-mac-arm64 ## Build and install macOS arm64 app to /Applications
+	@echo "Installing mux.app to /Applications..."
+	@rm -rf /Applications/mux.app
+	@cp -R release/mac-arm64/mux.app /Applications/
+	@echo "Installed mux.app to /Applications"
 
 dist-win: build ## Build Windows distributable
 	@bun x electron-builder --win --publish never
