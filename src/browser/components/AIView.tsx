@@ -5,7 +5,11 @@ import { InterruptedBarrier } from "./Messages/ChatBarrier/InterruptedBarrier";
 import { StreamingBarrier } from "./Messages/ChatBarrier/StreamingBarrier";
 import { RetryBarrier } from "./Messages/ChatBarrier/RetryBarrier";
 import { PinnedTodoList } from "./PinnedTodoList";
-import { getAutoRetryKey, VIM_ENABLED_KEY } from "@/common/constants/storage";
+import {
+  getAutoRetryKey,
+  VIM_ENABLED_KEY,
+  RIGHT_SIDEBAR_TAB_KEY,
+} from "@/common/constants/storage";
 import { WORKSPACE_DEFAULTS } from "@/constants/workspaceDefaults";
 import { ChatInput, type ChatInputAPI } from "./ChatInput/index";
 import { RightSidebar, type TabType } from "./RightSidebar";
@@ -22,7 +26,7 @@ import { ProviderOptionsProvider } from "@/browser/contexts/ProviderOptionsConte
 import { formatKeybind, KEYBINDS } from "@/browser/utils/ui/keybinds";
 import { useAutoScroll } from "@/browser/hooks/useAutoScroll";
 import { useOpenTerminal } from "@/browser/hooks/useOpenTerminal";
-import { usePersistedState } from "@/browser/hooks/usePersistedState";
+import { readPersistedState, usePersistedState } from "@/browser/hooks/usePersistedState";
 import { useThinking } from "@/browser/contexts/ThinkingContext";
 import {
   useWorkspaceState,
@@ -75,8 +79,11 @@ const AIViewInner: React.FC<AIViewProps> = ({
   const chatAreaRef = useRef<HTMLDivElement>(null);
 
   // Track active tab to conditionally enable resize functionality
-  // RightSidebar notifies us of tab changes via onTabChange callback
-  const [activeTab, setActiveTab] = useState<TabType>("costs");
+  // Initialize from persisted value to avoid layout flash; RightSidebar owns the state
+  // and notifies us of changes via onTabChange callback
+  const [activeTab, setActiveTab] = useState<TabType>(() =>
+    readPersistedState<TabType>(RIGHT_SIDEBAR_TAB_KEY, "costs")
+  );
 
   const isReviewTabActive = activeTab === "review";
 
