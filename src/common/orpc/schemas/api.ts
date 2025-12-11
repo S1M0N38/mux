@@ -177,7 +177,11 @@ export const projects = {
 // Workspace
 export const workspace = {
   list: {
-    input: z.void(),
+    input: z
+      .object({
+        includePostCompaction: z.boolean().optional(),
+      })
+      .optional(),
     output: z.array(FrontendWorkspaceMetadataSchema),
   },
   create: {
@@ -361,6 +365,30 @@ export const workspace = {
       input: z.object({ workspaceId: z.string(), toolCallId: z.string() }),
       output: ResultSchema(z.void(), z.string()),
     },
+  },
+  /**
+   * Get post-compaction context state for a workspace.
+   * Returns plan path (if exists) and tracked file paths that will be injected.
+   */
+  getPostCompactionState: {
+    input: z.object({ workspaceId: z.string() }),
+    output: z.object({
+      planPath: z.string().nullable(),
+      trackedFilePaths: z.array(z.string()),
+      excludedItems: z.array(z.string()),
+    }),
+  },
+  /**
+   * Toggle whether a post-compaction item is excluded from injection.
+   * Item IDs: "plan" for plan file, "file:<path>" for tracked files.
+   */
+  setPostCompactionExclusion: {
+    input: z.object({
+      workspaceId: z.string(),
+      itemId: z.string(),
+      excluded: z.boolean(),
+    }),
+    output: ResultSchema(z.void(), z.string()),
   },
 };
 

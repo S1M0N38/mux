@@ -11,6 +11,10 @@ import { ConsumerBreakdown } from "./ConsumerBreakdown";
 import { HorizontalThresholdSlider } from "./ThresholdSlider";
 import { useAutoCompactionSettings } from "@/browser/hooks/useAutoCompactionSettings";
 import { Tooltip, TooltipTrigger, TooltipContent } from "../ui/tooltip";
+import { PostCompactionSection } from "./PostCompactionSection";
+import { usePostCompactionState } from "@/browser/hooks/usePostCompactionState";
+import { useExperimentValue } from "@/browser/contexts/ExperimentsContext";
+import { EXPERIMENT_IDS } from "@/common/constants/experiments";
 
 // Format token display - show k for thousands with 1 decimal
 const formatTokens = (tokens: number) =>
@@ -64,6 +68,10 @@ const CostsTabComponent: React.FC<CostsTabProps> = ({ workspaceId }) => {
   const [viewMode, setViewMode] = usePersistedState<ViewMode>("costsTab:viewMode", "session");
   const { options } = useProviderOptions();
   const use1M = options.anthropic?.use1MContext ?? false;
+
+  // Post-compaction context state for UI display (gated by experiment)
+  const postCompactionEnabled = useExperimentValue(EXPERIMENT_IDS.POST_COMPACTION_CONTEXT);
+  const postCompactionState = usePostCompactionState(workspaceId);
 
   // Get model from context usage for per-model threshold storage
   // Use lastContextUsage for context window display (last step's usage)
@@ -265,6 +273,15 @@ const CostsTabComponent: React.FC<CostsTabProps> = ({ workspaceId }) => {
               );
             })()}
           </div>
+          {postCompactionEnabled && (
+            <PostCompactionSection
+              workspaceId={workspaceId}
+              planPath={postCompactionState.planPath}
+              trackedFilePaths={postCompactionState.trackedFilePaths}
+              excludedItems={postCompactionState.excludedItems}
+              onToggleExclusion={postCompactionState.toggleExclusion}
+            />
+          )}
         </div>
       )}
 

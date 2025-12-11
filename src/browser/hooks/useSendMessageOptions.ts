@@ -13,6 +13,8 @@ import { getSendOptionsFromStorage } from "@/browser/utils/messages/sendOptions"
 import { enforceThinkingPolicy } from "@/browser/utils/thinking/policy";
 import { useProviderOptions } from "./useProviderOptions";
 import type { GatewayState } from "./useGatewayModels";
+import { useExperimentValue } from "./useExperiments";
+import { EXPERIMENT_IDS } from "@/common/constants/experiments";
 
 /**
  * Transform model to gateway format using reactive gateway state.
@@ -44,7 +46,8 @@ function constructSendMessageOptions(
   preferredModel: string | null | undefined,
   providerOptions: MuxProviderOptions,
   fallbackModel: string,
-  gateway: GatewayState
+  gateway: GatewayState,
+  postCompactionContext: boolean
 ): SendMessageOptions {
   // Ensure model is always a valid string (defensive against corrupted localStorage)
   const rawModel =
@@ -65,6 +68,9 @@ function constructSendMessageOptions(
     mode: mode === "exec" || mode === "plan" ? mode : "exec", // Only pass exec/plan to backend
     toolPolicy: modeToToolPolicy(mode),
     providerOptions,
+    experiments: {
+      postCompactionContext,
+    },
   };
 }
 
@@ -104,6 +110,9 @@ export function useSendMessageOptions(workspaceId: string): SendMessageOptionsWi
   // Subscribe to gateway state so we re-render when user toggles gateway
   const gateway = useGateway();
 
+  // Subscribe to experiment state so toggles apply immediately
+  const postCompactionContext = useExperimentValue(EXPERIMENT_IDS.POST_COMPACTION_CONTEXT);
+
   // Compute base model (canonical format) for UI components
   const rawModel =
     typeof preferredModel === "string" && preferredModel ? preferredModel : defaultModel;
@@ -115,7 +124,8 @@ export function useSendMessageOptions(workspaceId: string): SendMessageOptionsWi
     preferredModel,
     providerOptions,
     defaultModel,
-    gateway
+    gateway,
+    postCompactionContext
   );
 
   return { ...options, baseModel };

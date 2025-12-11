@@ -15,13 +15,21 @@ import type { ExtensionMetadataService } from "@/node/services/ExtensionMetadata
 import type { MCPServerManager } from "@/node/services/mcpServerManager";
 import { createRuntime, IncompatibleRuntimeError } from "@/node/runtime/runtimeFactory";
 import { validateWorkspaceName } from "@/common/utils/validation/workspaceValidation";
+import { getPlanFilePath, getLegacyPlanFilePath } from "@/common/utils/planStorage";
+import { shellQuote } from "@/node/runtime/backgroundCommands";
+import { extractEditedFilePaths } from "@/common/utils/messages/extractEditedFiles";
+import { fileExists } from "@/node/utils/runtime/fileExists";
+import { expandTilde, expandTildeForSSH } from "@/node/runtime/tildeExpansion";
 
+import type { PostCompactionExclusions } from "@/common/types/attachment";
 import type {
   SendMessageOptions,
   DeleteMessage,
   ImagePart,
   WorkspaceChatMessage,
 } from "@/common/orpc/types";
+import type { workspace as workspaceSchemas } from "@/common/orpc/schemas/api";
+import type { z } from "zod";
 import type { SendMessageError } from "@/common/types/errors";
 import type {
   FrontendWorkspaceMetadata,
@@ -29,7 +37,7 @@ import type {
 } from "@/common/types/workspace";
 import type { MuxMessage } from "@/common/types/message";
 import type { RuntimeConfig } from "@/common/types/runtime";
-import { hasSrcBaseDir, getSrcBaseDir } from "@/common/types/runtime";
+import { hasSrcBaseDir, getSrcBaseDir, isSSHRuntime } from "@/common/types/runtime";
 import { defaultModel } from "@/common/utils/ai/models";
 import type { StreamEndEvent, StreamAbortEvent } from "@/common/types/stream";
 import type { TerminalService } from "@/node/services/terminalService";
@@ -234,6 +242,18 @@ export class WorkspaceService extends EventEmitter {
       aiService: this.aiService,
       initStateManager: this.initStateManager,
       backgroundProcessManager: this.backgroundProcessManager,
+      onCompactionComplete: () => {
+        // Emit updated metadata with postCompaction state after compaction
+        void (async () => {
+          const metadata = await this.getInfo(trimmed);
+          if (metadata) {
+            const postCompaction = await this.getPostCompactionState(trimmed);
+            const enrichedMetadata = { ...metadata, postCompaction };
+            // Look up session from map (guaranteed to exist by the time callback runs)
+            this.sessions.get(trimmed)?.emitMetadata(enrichedMetadata);
+          }
+        })();
+      },
     });
 
     const chatUnsubscribe = session.onChatEvent((event) => {
@@ -271,6 +291,123 @@ export class WorkspaceService extends EventEmitter {
 
     session.dispose();
     this.sessions.delete(workspaceId);
+  }
+
+  /**
+   * Get post-compaction context state for a workspace.
+   * Returns info about what will be injected after compaction.
+   * Prefers cached paths from pending compaction, falls back to history extraction.
+   */
+  public async getPostCompactionState(workspaceId: string): Promise<{
+    planPath: string | null;
+    trackedFilePaths: string[];
+    excludedItems: string[];
+  }> {
+    // Get workspace metadata to create runtime for plan file check
+    const metadata = await this.getInfo(workspaceId);
+    if (!metadata) {
+      // Can't get metadata, return empty state
+      const exclusions = await this.getPostCompactionExclusions(workspaceId);
+      return { planPath: null, trackedFilePaths: [], excludedItems: exclusions.excludedItems };
+    }
+
+    const planPath = getPlanFilePath(metadata.name, metadata.projectName);
+    // Expand tilde for comparison with absolute paths from message history
+    const expandedPlanPath = expandTilde(planPath);
+    // Also get legacy plan path (stored by workspace ID) for filtering
+    const legacyPlanPath = getLegacyPlanFilePath(workspaceId);
+    const expandedLegacyPlanPath = expandTilde(legacyPlanPath);
+    const runtime = createRuntime(metadata.runtimeConfig, { projectPath: metadata.projectPath });
+
+    // Check both new and legacy plan paths, prefer new path
+    const newPlanExists = await fileExists(runtime, planPath);
+    const legacyPlanExists = !newPlanExists && (await fileExists(runtime, legacyPlanPath));
+    const activePlanPath = newPlanExists ? planPath : legacyPlanExists ? legacyPlanPath : null;
+
+    // Load exclusions
+    const exclusions = await this.getPostCompactionExclusions(workspaceId);
+
+    // Helper to check if a path is a plan file (new or legacy format)
+    const isPlanPath = (p: string) =>
+      p === planPath ||
+      p === expandedPlanPath ||
+      p === legacyPlanPath ||
+      p === expandedLegacyPlanPath;
+
+    // If session has pending compaction attachments, use cached paths
+    // (history is cleared after compaction, but cache survives)
+    const session = this.sessions.get(workspaceId);
+    const pendingPaths = session?.getPendingTrackedFilePaths();
+    if (pendingPaths) {
+      // Filter out both new and legacy plan file paths
+      const trackedFilePaths = pendingPaths.filter((p) => !isPlanPath(p));
+      return {
+        planPath: activePlanPath,
+        trackedFilePaths,
+        excludedItems: exclusions.excludedItems,
+      };
+    }
+
+    // Fallback: compute tracked files from message history (survives reloads)
+    const historyResult = await this.historyService.getHistory(workspaceId);
+    const messages = historyResult.success ? historyResult.data : [];
+    const allPaths = extractEditedFilePaths(messages);
+
+    // Exclude plan file from tracked files since it has its own section
+    // Filter out both new and legacy plan file paths
+    const trackedFilePaths = allPaths.filter((p) => !isPlanPath(p));
+    return {
+      planPath: activePlanPath,
+      trackedFilePaths,
+      excludedItems: exclusions.excludedItems,
+    };
+  }
+
+  /**
+   * Get post-compaction exclusions for a workspace.
+   * Returns empty exclusions if file doesn't exist.
+   */
+  public async getPostCompactionExclusions(workspaceId: string): Promise<PostCompactionExclusions> {
+    const exclusionsPath = path.join(this.config.getSessionDir(workspaceId), "exclusions.json");
+    try {
+      const data = await fsPromises.readFile(exclusionsPath, "utf-8");
+      return JSON.parse(data) as PostCompactionExclusions;
+    } catch {
+      return { excludedItems: [] };
+    }
+  }
+
+  /**
+   * Set whether an item is excluded from post-compaction context.
+   * Item IDs: "plan" for plan file, "file:<path>" for tracked files.
+   */
+  public async setPostCompactionExclusion(
+    workspaceId: string,
+    itemId: string,
+    excluded: boolean
+  ): Promise<Result<void>> {
+    try {
+      const exclusions = await this.getPostCompactionExclusions(workspaceId);
+      const set = new Set(exclusions.excludedItems);
+
+      if (excluded) {
+        set.add(itemId);
+      } else {
+        set.delete(itemId);
+      }
+
+      const sessionDir = this.config.getSessionDir(workspaceId);
+      await fsPromises.mkdir(sessionDir, { recursive: true });
+      const exclusionsPath = path.join(sessionDir, "exclusions.json");
+      await fsPromises.writeFile(
+        exclusionsPath,
+        JSON.stringify({ excludedItems: [...set] }, null, 2)
+      );
+      return Ok(undefined);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      return Err(`Failed to set exclusion: ${message}`);
+    }
   }
 
   async create(
@@ -482,9 +619,29 @@ export class WorkspaceService extends EventEmitter {
     }
   }
 
-  async list(): Promise<FrontendWorkspaceMetadata[]> {
+  async list(
+    options?: z.infer<typeof workspaceSchemas.list.input>
+  ): Promise<FrontendWorkspaceMetadata[]> {
     try {
-      return await this.config.getAllWorkspaceMetadata();
+      const metadata = await this.config.getAllWorkspaceMetadata();
+
+      if (!options?.includePostCompaction) {
+        return metadata;
+      }
+
+      // Fetch post-compaction state for all workspaces in parallel
+      // Catch per-workspace errors to avoid failing the entire list if one workspace is unreachable
+      return Promise.all(
+        metadata.map(async (ws) => {
+          try {
+            const postCompaction = await this.getPostCompactionState(ws.id);
+            return { ...ws, postCompaction };
+          } catch {
+            // Workspace runtime unavailable (e.g., SSH unreachable) - return without post-compaction state
+            return ws;
+          }
+        })
+      );
     } catch (error) {
       log.error("Failed to list workspaces:", error);
       return [];
@@ -918,6 +1075,42 @@ export class WorkspaceService extends EventEmitter {
         // Fallback to direct emit (legacy path)
         this.emit("chat", { workspaceId, message: deleteMessage });
       }
+    }
+
+    // On full clear, also delete plan file and clear file change tracking
+    if ((percentage ?? 1.0) === 1.0) {
+      // Delete plan files through runtime (supports both local and SSH)
+      const metadata = await this.getInfo(workspaceId);
+      if (metadata) {
+        const runtime = createRuntime(metadata.runtimeConfig, {
+          projectPath: metadata.projectPath,
+        });
+
+        // Delete both new and legacy plan paths to handle migrated workspaces
+        const planPath = getPlanFilePath(metadata.name, metadata.projectName);
+        const legacyPlanPath = getLegacyPlanFilePath(workspaceId);
+
+        // For SSH: use $HOME expansion so remote shell resolves to remote home directory
+        // For local: expand tilde locally since shellQuote prevents shell expansion
+        const quotedPlanPath = isSSHRuntime(metadata.runtimeConfig)
+          ? expandTildeForSSH(planPath)
+          : shellQuote(expandTilde(planPath));
+        const quotedLegacyPlanPath = isSSHRuntime(metadata.runtimeConfig)
+          ? expandTildeForSSH(legacyPlanPath)
+          : shellQuote(expandTilde(legacyPlanPath));
+
+        try {
+          // Use exec to delete files since runtime doesn't have a deleteFile method
+          // Delete both paths in one command for efficiency
+          await runtime.exec(`rm -f ${quotedPlanPath} ${quotedLegacyPlanPath}`, {
+            cwd: metadata.projectPath,
+            timeout: 10,
+          });
+        } catch {
+          // Plan files don't exist or can't be deleted - ignore
+        }
+      }
+      this.sessions.get(workspaceId)?.clearFileState();
     }
 
     return Ok(undefined);

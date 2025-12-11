@@ -273,8 +273,8 @@ export const router = (authToken?: string) => {
       list: t
         .input(schemas.workspace.list.input)
         .output(schemas.workspace.list.output)
-        .handler(({ context }) => {
-          return context.workspaceService.list();
+        .handler(({ context, input }) => {
+          return context.workspaceService.list(input ?? undefined);
         }),
       create: t
         .input(schemas.workspace.create.input)
@@ -677,6 +677,22 @@ export const router = (authToken?: string) => {
             return { success: true, data: undefined };
           }),
       },
+      getPostCompactionState: t
+        .input(schemas.workspace.getPostCompactionState.input)
+        .output(schemas.workspace.getPostCompactionState.output)
+        .handler(({ context, input }) => {
+          return context.workspaceService.getPostCompactionState(input.workspaceId);
+        }),
+      setPostCompactionExclusion: t
+        .input(schemas.workspace.setPostCompactionExclusion.input)
+        .output(schemas.workspace.setPostCompactionExclusion.output)
+        .handler(async ({ context, input }) => {
+          return context.workspaceService.setPostCompactionExclusion(
+            input.workspaceId,
+            input.itemId,
+            input.excluded
+          );
+        }),
     },
     window: {
       setTitle: t
