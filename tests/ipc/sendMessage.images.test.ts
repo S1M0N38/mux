@@ -25,15 +25,17 @@ if (shouldRunIntegrationTests()) {
   validateApiKeys(["OPENAI_API_KEY", "ANTHROPIC_API_KEY"]);
 }
 
-// 1x1 red PNG pixel as base64 data URI
+// 4x4 pure red PNG (#FF0000) as base64 data URI
+// Uses 8-bit RGB color (not indexed) for reliable vision model processing
 const RED_PIXEL = {
-  url: "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8DwHwAFBQIAX8jx0gAAAABJRU5ErkJggg==",
+  url: "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAQAAAAECAIAAAAmkwkpAAAAIGNIUk0AAHomAACAhAAA+gAAAIDoAAB1MAAA6mAAADqYAAAXcJy6UTwAAAAGYktHRAD/AP8A/6C9p5MAAAAHdElNRQfpDAsPKDCftlPRAAAAEElEQVQI12P8z4AATAxEcQAz0QEH8e1QIgAAAABJRU5ErkJggg==",
   mediaType: "image/png" as const,
 };
 
-// 1x1 blue PNG pixel as base64 data URI
+// 4x4 pure blue PNG (#0000FF) as base64 data URI
+// Uses 8-bit RGB color (not indexed) for reliable vision model processing
 const BLUE_PIXEL = {
-  url: "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPj/HwADBwIAMCbHYQAAAABJRU5ErkJggg==",
+  url: "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAQAAAAECAIAAAAmkwkpAAAAIGNIUk0AAHomAACAhAAA+gAAAIDoAAB1MAAA6mAAADqYAAAXcJy6UTwAAAAGYktHRAD/AP8A/6C9p5MAAAAHdElNRQfpDAsPKQs3pou0AAAAFElEQVQI12NkYPjPAANMDEgANwcAMdMBB3M2PuYAAAAASUVORK5CYII=",
   mediaType: "image/png" as const,
 };
 
@@ -58,11 +60,20 @@ describeIntegration("sendMessage image handling tests", () => {
 
         await withSharedWorkspace(provider, async ({ env, workspaceId, collector }) => {
           // Send message with image attachment
-          const result = await sendMessage(env, workspaceId, "What color is this?", {
-            model: modelString(provider, model),
-            imageParts: [RED_PIXEL],
-          });
+          const result = await sendMessage(
+            env,
+            workspaceId,
+            "This is a small solid-color image. What color is it? Answer with just the color name.",
+            {
+              model: modelString(provider, model),
+              imageParts: [RED_PIXEL],
+            }
+          );
 
+          // Debug: log if sendMessage failed
+          if (!result.success) {
+            console.log(`[Image Test] sendMessage failed:`, JSON.stringify(result, null, 2));
+          }
           expect(result.success).toBe(true);
 
           // Wait for stream to complete
@@ -81,7 +92,7 @@ describeIntegration("sendMessage image handling tests", () => {
           // Should mention red color in some form
           expect(fullResponse.length).toBeGreaterThan(0);
           // Red pixel should be detected (flexible matching as different models may phrase differently)
-          expect(fullResponse).toMatch(/red|color|orange/i);
+          expect(fullResponse).toMatch(/red/i);
         });
       },
       40000 // Vision models can be slower
@@ -100,6 +111,10 @@ describeIntegration("sendMessage image handling tests", () => {
             imageParts: [RED_PIXEL, BLUE_PIXEL],
           });
 
+          // Debug: log if sendMessage failed
+          if (!result.success) {
+            console.log(`[Image Test Multi] sendMessage failed:`, JSON.stringify(result, null, 2));
+          }
           expect(result.success).toBe(true);
 
           // Wait for stream to complete
