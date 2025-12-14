@@ -17,6 +17,7 @@ import {
   createBashBackgroundTerminateTool,
 } from "./mockFactory";
 import { setupSimpleChatStory } from "./storyHelpers";
+import { blurActiveElement, waitForChatInputAutofocusDone } from "./storyPlayHelpers.js";
 import { userEvent, waitFor } from "@storybook/test";
 
 /**
@@ -63,8 +64,9 @@ async function expandAllBashTools(canvasElement: HTMLElement) {
     }
   }
 
-  // Avoid leaving focus on a tool header (some components auto-focus inputs on timers)
-  (document.activeElement as HTMLElement | null)?.blur?.();
+  // Avoid leaving focus on a tool header.
+  await waitForChatInputAutofocusDone(canvasElement);
+  blurActiveElement();
 }
 
 export default {

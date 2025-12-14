@@ -153,6 +153,13 @@ const ChatInputInner: React.FC<ChatInputProps> = (props) => {
   const [imageAttachments, setImageAttachments] = useState<ImageAttachment[]>([]);
   // Attached reviews come from parent via props (persisted in pendingReviews state)
   const attachedReviews = variant === "workspace" ? (props.attachedReviews ?? []) : [];
+
+  const pushToast = useCallback(
+    (nextToast: Omit<Toast, "id">) => {
+      setToast({ id: Date.now().toString(), ...nextToast });
+    },
+    [setToast]
+  );
   const handleToastDismiss = useCallback(() => {
     setToast(null);
   }, []);
@@ -209,7 +216,7 @@ const ChatInputInner: React.FC<ChatInputProps> = (props) => {
       });
     },
     onError: (error) => {
-      setToast({ id: Date.now().toString(), type: "error", message: error });
+      pushToast({ type: "error", message: error });
     },
     onSend: () => void handleSend(),
     openAIKeySet,
@@ -324,6 +331,12 @@ const ChatInputInner: React.FC<ChatInputProps> = (props) => {
       creationModelInitialized.current = null;
     }
   }, [variant, defaultModel, storageKeys.modelKey]);
+
+  // Expose ChatInput auto-focus completion for Storybook/tests.
+  const chatInputSectionRef = useRef<HTMLDivElement | null>(null);
+  const setChatInputAutoFocusState = useCallback((state: "pending" | "done") => {
+    chatInputSectionRef.current?.setAttribute("data-autofocus-state", state);
+  }, []);
 
   const focusMessageInput = useCallback(() => {
     const element = inputRef.current;
@@ -575,8 +588,7 @@ const ChatInputInner: React.FC<ChatInputProps> = (props) => {
         xhigh: "Extra High — extended deep thinking",
       };
 
-      setToast({
-        id: Date.now().toString(),
+      pushToast({
         type: "success",
         message: `Thinking effort set to ${levelDescriptions[level]}`,
       });
@@ -585,7 +597,7 @@ const ChatInputInner: React.FC<ChatInputProps> = (props) => {
     window.addEventListener(CUSTOM_EVENTS.THINKING_LEVEL_TOAST, handler as EventListener);
     return () =>
       window.removeEventListener(CUSTOM_EVENTS.THINKING_LEVEL_TOAST, handler as EventListener);
-  }, [variant, props, setToast]);
+  }, [variant, props, pushToast]);
 
   // Voice input: command palette toggle + global recording keybinds
   useEffect(() => {
@@ -593,8 +605,7 @@ const ChatInputInner: React.FC<ChatInputProps> = (props) => {
 
     const handleToggle = () => {
       if (!voiceInput.isApiKeySet) {
-        setToast({
-          id: Date.now().toString(),
+        pushToast({
           type: "error",
           message: "Voice input requires OpenAI API key. Configure in Settings → Providers.",
         });
@@ -607,19 +618,64 @@ const ChatInputInner: React.FC<ChatInputProps> = (props) => {
     return () => {
       window.removeEventListener(CUSTOM_EVENTS.TOGGLE_VOICE_INPUT, handleToggle as EventListener);
     };
-  }, [voiceInput, setToast]);
+  }, [voiceInput, pushToast]);
 
-  // Auto-focus chat input when workspace changes (workspace only)
+  // Auto-focus chat input when workspace changes (workspace only).
   const workspaceIdForFocus = variant === "workspace" ? props.workspaceId : null;
   useEffect(() => {
     if (variant !== "workspace") return;
 
-    // Small delay to ensure DOM is ready and other components have settled
-    const timer = setTimeout(() => {
+    const maxFrames = 10;
+    setChatInputAutoFocusState("pending");
+
+    let cancelled = false;
+    let rafId: number | null = null;
+    let attempts = 0;
+
+    const step = () => {
+      if (cancelled) return;
+
+      attempts += 1;
+
+      const input = inputRef.current;
+      const active = document.activeElement;
+
+      if (
+        active instanceof HTMLElement &&
+        active !== document.body &&
+        active !== document.documentElement
+      ) {
+        const isWithinChatInput = !!chatInputSectionRef.current?.contains(active);
+        const isInput = !!input && active === input;
+        if (!isWithinChatInput && !isInput) {
+          setChatInputAutoFocusState("done");
+          return;
+        }
+      }
+
       focusMessageInput();
-    }, 100);
-    return () => clearTimeout(timer);
-  }, [variant, workspaceIdForFocus, focusMessageInput]);
+
+      const isFocused = !!input && document.activeElement === input;
+      const isDone = isFocused || attempts >= maxFrames;
+
+      if (isDone) {
+        setChatInputAutoFocusState("done");
+        return;
+      }
+
+      rafId = requestAnimationFrame(step);
+    };
+
+    rafId = requestAnimationFrame(step);
+
+    return () => {
+      cancelled = true;
+      if (rafId !== null) {
+        cancelAnimationFrame(rafId);
+      }
+      setChatInputAutoFocusState("done");
+    };
+  }, [variant, workspaceIdForFocus, focusMessageInput, setChatInputAutoFocusState]);
 
   // Handle paste events to extract images
   const handlePaste = useCallback((e: React.ClipboardEvent<HTMLTextAreaElement>) => {
@@ -714,11 +770,7 @@ const ChatInputInner: React.FC<ChatInputProps> = (props) => {
             inputRef.current.style.height = "";
           }
           await props.onTruncateHistory(1.0);
-          setToast({
-            id: Date.now().toString(),
-            type: "success",
-            message: "Chat history cleared",
-          });
+          pushToast({ type: "success", message: "Chat history cleared" });
           return;
         }
 
@@ -729,8 +781,7 @@ const ChatInputInner: React.FC<ChatInputProps> = (props) => {
             inputRef.current.style.height = "";
           }
           await props.onTruncateHistory(parsed.percentage);
-          setToast({
-            id: Date.now().toString(),
+          pushToast({
             type: "success",
             message: `Chat history truncated by ${Math.round(parsed.percentage * 100)}%`,
           });
@@ -745,15 +796,13 @@ const ChatInputInner: React.FC<ChatInputProps> = (props) => {
           try {
             await props.onProviderConfig(parsed.provider, parsed.keyPath, parsed.value);
             // Success - show toast
-            setToast({
-              id: Date.now().toString(),
+            pushToast({
               type: "success",
               message: `Provider ${parsed.provider} updated`,
             });
           } catch (error) {
             console.error("Failed to update provider config:", error);
-            setToast({
-              id: Date.now().toString(),
+            pushToast({
               type: "error",
               message: error instanceof Error ? error.message : "Failed to update provider",
             });
@@ -769,40 +818,53 @@ const ChatInputInner: React.FC<ChatInputProps> = (props) => {
           setInput(""); // Clear input immediately
           setPreferredModel(parsed.modelString);
           props.onModelChange?.(parsed.modelString);
-          setToast({
-            id: Date.now().toString(),
-            type: "success",
-            message: `Model changed to ${parsed.modelString}`,
-          });
+          pushToast({ type: "success", message: `Model changed to ${parsed.modelString}` });
           return;
         }
 
-        // Handle /vim command
         if (parsed.type === "mcp-open") {
           setInput("");
           open("project");
           return;
         }
 
+        if (parsed.type === "vim-toggle") {
+          setInput(""); // Clear input immediately
+          setVimEnabled((prev) => !prev);
+          return;
+        }
+
+        // Handle /vim command
+
+        // Handle other non-API commands (help, invalid args, etc)
+        const commandToast = createCommandToast(parsed);
+        if (commandToast) {
+          setToast(commandToast);
+          return;
+        }
+
+        if (!api) {
+          pushToast({ type: "error", message: "Not connected to server" });
+          return;
+        }
+
+        const commandHandlerContextBase: CommandHandlerContext = {
+          api,
+          workspaceId: props.workspaceId,
+          sendMessageOptions,
+          setInput,
+          setImageAttachments,
+          setIsSending,
+          setToast,
+        };
+
         if (
           parsed.type === "mcp-add" ||
           parsed.type === "mcp-edit" ||
           parsed.type === "mcp-remove"
         ) {
-          if (!api) {
-            setToast({
-              id: Date.now().toString(),
-              type: "error",
-              message: "Not connected to server",
-            });
-            return;
-          }
           if (!selectedWorkspace?.projectPath) {
-            setToast({
-              id: Date.now().toString(),
-              type: "error",
-              message: "Select a workspace to manage MCP servers",
-            });
+            pushToast({ type: "error", message: "Select a workspace to manage MCP servers" });
             return;
           }
 
@@ -820,8 +882,7 @@ const ChatInputInner: React.FC<ChatInputProps> = (props) => {
                 : await api.projects.mcp.remove({ projectPath, name: parsed.name });
 
             if (!result.success) {
-              setToast({
-                id: Date.now().toString(),
+              pushToast({
                 type: "error",
                 message: result.error ?? "Failed to update MCP servers",
               });
@@ -833,16 +894,11 @@ const ChatInputInner: React.FC<ChatInputProps> = (props) => {
                   : parsed.type === "mcp-edit"
                     ? `Updated MCP server ${parsed.name}`
                     : `Removed MCP server ${parsed.name}`;
-              setToast({
-                id: Date.now().toString(),
-                type: "success",
-                message: successMessage,
-              });
+              pushToast({ type: "success", message: successMessage });
             }
           } catch (error) {
             console.error("Failed to update MCP servers", error);
-            setToast({
-              id: Date.now().toString(),
+            pushToast({
               type: "error",
               message: error instanceof Error ? error.message : "Failed to update MCP servers",
             });
@@ -854,31 +910,11 @@ const ChatInputInner: React.FC<ChatInputProps> = (props) => {
           return;
         }
 
-        if (parsed.type === "vim-toggle") {
-          setInput(""); // Clear input immediately
-          setVimEnabled((prev) => !prev);
-          return;
-        }
-
         // Handle /compact command
         if (parsed.type === "compact") {
-          if (!api) {
-            setToast({
-              id: Date.now().toString(),
-              type: "error",
-              message: "Not connected to server",
-            });
-            return;
-          }
           const context: CommandHandlerContext = {
-            api: api,
-            workspaceId: props.workspaceId,
-            sendMessageOptions,
+            ...commandHandlerContextBase,
             editMessageId: editingMessage?.id,
-            setInput,
-            setImageAttachments,
-            setIsSending,
-            setToast,
             onCancelEdit: props.onCancelEdit,
           };
 
@@ -891,14 +927,6 @@ const ChatInputInner: React.FC<ChatInputProps> = (props) => {
 
         // Handle /fork command
         if (parsed.type === "fork") {
-          if (!api) {
-            setToast({
-              id: Date.now().toString(),
-              type: "error",
-              message: "Not connected to server",
-            });
-            return;
-          }
           setInput(""); // Clear input immediately
           setIsSending(true);
 
@@ -914,16 +942,10 @@ const ChatInputInner: React.FC<ChatInputProps> = (props) => {
             if (!forkResult.success) {
               const errorMsg = forkResult.error ?? "Failed to fork workspace";
               console.error("Failed to fork workspace:", errorMsg);
-              setToast({
-                id: Date.now().toString(),
-                type: "error",
-                title: "Fork Failed",
-                message: errorMsg,
-              });
+              pushToast({ type: "error", title: "Fork Failed", message: errorMsg });
               setInput(messageText); // Restore input on error
             } else {
-              setToast({
-                id: Date.now().toString(),
+              pushToast({
                 type: "success",
                 message: `Forked to workspace "${parsed.newName}"`,
               });
@@ -931,12 +953,7 @@ const ChatInputInner: React.FC<ChatInputProps> = (props) => {
           } catch (error) {
             const errorMsg = error instanceof Error ? error.message : "Failed to fork workspace";
             console.error("Fork error:", error);
-            setToast({
-              id: Date.now().toString(),
-              type: "error",
-              title: "Fork Failed",
-              message: errorMsg,
-            });
+            pushToast({ type: "error", title: "Fork Failed", message: errorMsg });
             setInput(messageText); // Restore input on error
           }
 
@@ -946,23 +963,7 @@ const ChatInputInner: React.FC<ChatInputProps> = (props) => {
 
         // Handle /new command
         if (parsed.type === "new") {
-          if (!api) {
-            setToast({
-              id: Date.now().toString(),
-              type: "error",
-              message: "Not connected to server",
-            });
-            return;
-          }
-          const context: CommandHandlerContext = {
-            api: api,
-            workspaceId: props.workspaceId,
-            sendMessageOptions,
-            setInput,
-            setImageAttachments,
-            setIsSending,
-            setToast,
-          };
+          const context = commandHandlerContextBase;
 
           const result = await handleNewCommand(parsed, context);
           if (!result.clearInput) {
@@ -973,23 +974,7 @@ const ChatInputInner: React.FC<ChatInputProps> = (props) => {
 
         // Handle /plan command
         if (parsed.type === "plan-show" || parsed.type === "plan-open") {
-          if (!api) {
-            setToast({
-              id: Date.now().toString(),
-              type: "error",
-              message: "Not connected to server",
-            });
-            return;
-          }
-          const context: CommandHandlerContext = {
-            api: api,
-            workspaceId: props.workspaceId,
-            sendMessageOptions,
-            setInput,
-            setImageAttachments,
-            setIsSending,
-            setToast,
-          };
+          const context = commandHandlerContextBase;
 
           const handler =
             parsed.type === "plan-show" ? handlePlanShowCommand : handlePlanOpenCommand;
@@ -999,22 +984,11 @@ const ChatInputInner: React.FC<ChatInputProps> = (props) => {
           }
           return;
         }
-
-        // Handle all other commands - show display toast
-        const commandToast = createCommandToast(parsed);
-        if (commandToast) {
-          setToast(commandToast);
-          return;
-        }
       }
 
       // Regular message - send directly via API
       if (!api) {
-        setToast({
-          id: Date.now().toString(),
-          type: "error",
-          message: "Not connected to server",
-        });
+        pushToast({ type: "error", message: "Not connected to server" });
         return;
       }
       setIsSending(true);
@@ -1064,8 +1038,7 @@ const ChatInputInner: React.FC<ChatInputProps> = (props) => {
           if (!result.success) {
             // Restore on error
             setDraft(preSendDraft);
-            setToast({
-              id: Date.now().toString(),
+            pushToast({
               type: "error",
               title: "Auto-Compaction Failed",
               message: result.error ?? "Failed to start auto-compaction",
@@ -1075,18 +1048,16 @@ const ChatInputInner: React.FC<ChatInputProps> = (props) => {
             if (sentReviewIds.length > 0) {
               props.onCheckReviews?.(sentReviewIds);
             }
-            setToast({
-              id: Date.now().toString(),
+            pushToast({
               type: "success",
-              message: `Context threshold reached - auto-compacting...`,
+              message: "Context threshold reached - auto-compacting...",
             });
             props.onMessageSent?.();
           }
         } catch (error) {
           // Restore on unexpected error
           setDraft(preSendDraft);
-          setToast({
-            id: Date.now().toString(),
+          pushToast({
             type: "error",
             title: "Auto-Compaction Failed",
             message:
@@ -1234,8 +1205,7 @@ const ChatInputInner: React.FC<ChatInputProps> = (props) => {
     if (matchesKeybind(e, KEYBINDS.TOGGLE_VOICE_INPUT) && voiceInput.shouldShowUI) {
       e.preventDefault();
       if (!voiceInput.isApiKeySet) {
-        setToast({
-          id: Date.now().toString(),
+        pushToast({
           type: "error",
           message: "Voice input requires OpenAI API key. Configure in Settings → Providers.",
         });
@@ -1371,6 +1341,7 @@ const ChatInputInner: React.FC<ChatInputProps> = (props) => {
 
       {/* Input section - centered card for creation, bottom bar for workspace */}
       <div
+        ref={chatInputSectionRef}
         className={cn(
           "relative flex flex-col gap-1",
           variant === "creation"
@@ -1378,6 +1349,7 @@ const ChatInputInner: React.FC<ChatInputProps> = (props) => {
             : "bg-separator border-border-light border-t px-[15px] pt-[5px] pb-[15px]"
         )}
         data-component="ChatInputSection"
+        data-autofocus-state="done"
       >
         <div className={cn("w-full", variant !== "creation" && "mx-auto max-w-4xl")}>
           {/* Toast - show shared toast (slash commands) or variant-specific toast */}

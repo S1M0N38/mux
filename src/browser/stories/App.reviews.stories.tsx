@@ -4,6 +4,7 @@
 
 import { appMeta, AppWithMocks, type AppStory } from "./meta.js";
 import { setupSimpleChatStory, setReviews, createReview } from "./storyHelpers";
+import { blurActiveElement, waitForChatInputAutofocusDone } from "./storyPlayHelpers.js";
 import { createUserMessage, createAssistantMessage } from "./mockFactory";
 import { within, userEvent, waitFor } from "@storybook/test";
 
@@ -273,8 +274,8 @@ export const BulkReviewActions: AppStory = {
       await userEvent.click(bannerButton);
     });
 
-    // Wait for any auto-focus timers, then blur
-    await new Promise((resolve) => setTimeout(resolve, 150));
-    (document.activeElement as HTMLElement)?.blur();
+    // Wait for ChatInput's auto-focus attempt to finish, then blur
+    await waitForChatInputAutofocusDone(canvasElement);
+    blurActiveElement();
   },
 };
