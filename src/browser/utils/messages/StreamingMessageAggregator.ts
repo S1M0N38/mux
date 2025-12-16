@@ -338,15 +338,15 @@ export class StreamingMessageAggregator {
    * Clears:
    * - Active stream tracking (this.activeStreams)
    * - Current TODOs (this.currentTodos) - reconstructed from history on reload
-   *
-   * Does NOT clear:
-   * - agentStatus - persists after stream completion to show last activity
+   * - Transient agentStatus (from displayStatus) - restored to persisted value
    */
   private cleanupStreamState(messageId: string): void {
     this.activeStreams.delete(messageId);
     // Clear todos when stream ends - they're stream-scoped state
     // On reload, todos will be reconstructed from completed tool_write calls in history
     this.currentTodos = [];
+    // Restore persisted status - clears transient displayStatus, preserves status_set values
+    this.agentStatus = this.loadPersistedAgentStatus();
   }
 
   /**
@@ -929,12 +929,21 @@ export class StreamingMessageAggregator {
 
       // If this is a user message, clear derived state and record timestamp
       if (incomingMessage.role === "user") {
-        // Clear derived state (todos, agentStatus) for new conversation turn
-        // This ensures consistent behavior whether loading from history or processing live events
-        // since stream-start/stream-end events are not persisted in chat.jsonl
+        const muxMeta = incomingMessage.metadata?.muxMetadata as
+          | { displayStatus?: { emoji: string; message: string } }
+          | undefined;
+
+        // Always clear todos (stream-scoped state)
         this.currentTodos = [];
-        this.agentStatus = undefined;
-        this.clearPersistedAgentStatus();
+
+        if (muxMeta?.displayStatus) {
+          // Background operation - show requested status (don't persist)
+          this.agentStatus = muxMeta.displayStatus;
+        } else {
+          // Normal user turn - clear status
+          this.agentStatus = undefined;
+          this.clearPersistedAgentStatus();
+        }
 
         this.setPendingStreamStartTime(Date.now());
       }
@@ -1087,6 +1096,7 @@ export class StreamingMessageAggregator {
                 isPartial: message.metadata?.partial ?? false,
                 isLastPartOfMessage: isLastPart,
                 isCompacted: message.metadata?.compacted ?? false,
+                isIdleCompacted: message.metadata?.idleCompacted ?? false,
                 model: message.metadata?.model,
                 timestamp: part.timestamp ?? baseTimestamp,
               });
