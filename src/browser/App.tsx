@@ -54,6 +54,10 @@ import { getWorkspaceSidebarKey } from "./utils/workspace";
 
 const THINKING_LEVELS: ThinkingLevel[] = ["off", "low", "medium", "high"];
 
+function isStorybookIframe(): boolean {
+  return typeof window !== "undefined" && window.location.pathname.endsWith("iframe.html");
+}
+
 function AppInner() {
   // Get workspace state from context
   const {
@@ -139,11 +143,17 @@ function AppInner() {
 
   // Sync selectedWorkspace with URL hash
   useEffect(() => {
+    // Storybook's test runner treats hash updates as navigations and will retry play tests.
+    // The hash deep-linking isn't needed in Storybook, so skip it there.
+    const shouldSyncHash = !isStorybookIframe();
+
     if (selectedWorkspace) {
       // Update URL with workspace ID
-      const newHash = `#workspace=${encodeURIComponent(selectedWorkspace.workspaceId)}`;
-      if (window.location.hash !== newHash) {
-        window.history.replaceState(null, "", newHash);
+      if (shouldSyncHash) {
+        const newHash = `#workspace=${encodeURIComponent(selectedWorkspace.workspaceId)}`;
+        if (window.location.hash !== newHash) {
+          window.history.replaceState(null, "", newHash);
+        }
       }
 
       // Update window title with workspace title (or name for legacy workspaces)
@@ -155,7 +165,7 @@ function AppInner() {
       void api?.window.setTitle({ title });
     } else {
       // Clear hash when no workspace selected
-      if (window.location.hash) {
+      if (shouldSyncHash && window.location.hash) {
         window.history.replaceState(null, "", window.location.pathname);
       }
       // Set document.title locally for browser mode, call backend for Electron
@@ -174,7 +184,7 @@ function AppInner() {
           `Workspace ${selectedWorkspace.workspaceId} no longer exists, clearing selection`
         );
         setSelectedWorkspace(null);
-        if (window.location.hash) {
+        if (!isStorybookIframe() && window.location.hash) {
           window.history.replaceState(null, "", window.location.pathname);
         }
       } else if (!selectedWorkspace.namedWorkspacePath && metadata.namedWorkspacePath) {
