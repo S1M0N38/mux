@@ -48,8 +48,10 @@ import { getTokenizerForModel } from "@/node/utils/main/tokenizer";
 import type { TelemetryService } from "@/node/services/telemetryService";
 import { getRuntimeTypeForTelemetry, roundToBase2 } from "@/common/telemetry/utils";
 import type { MCPServerManager, MCPWorkspaceStats } from "@/node/services/mcpServerManager";
+import type { TaskService } from "@/node/services/taskService";
 import { buildProviderOptions } from "@/common/utils/ai/providerOptions";
 import type { ThinkingLevel } from "@/common/types/thinking";
+import { DEFAULT_TASK_SETTINGS } from "@/common/types/tasks";
 import type {
   StreamAbortEvent,
   StreamDeltaEvent,
@@ -71,6 +73,7 @@ import { getPlanModeInstruction } from "@/common/utils/ui/modeUtils";
 import type { UIMode } from "@/common/types/mode";
 import { MUX_APP_ATTRIBUTION_TITLE, MUX_APP_ATTRIBUTION_URL } from "@/constants/appAttribution";
 import { readPlanFile } from "@/node/utils/runtime/helpers";
+import { getAgentPreset } from "@/node/services/agentPresets";
 
 // Export a standalone version of getToolsForModel for use in backend
 
@@ -342,6 +345,36 @@ function parseModelString(modelString: string): [string, string] {
   return [providerName, modelId];
 }
 
+function getTaskDepthFromConfig(
+  config: ReturnType<Config["loadConfigOrDefault"]>,
+  workspaceId: string
+): number {
+  const parentById = new Map<string, string | undefined>();
+  for (const project of config.projects.values()) {
+    for (const workspace of project.workspaces) {
+      if (!workspace.id) continue;
+      parentById.set(workspace.id, workspace.parentWorkspaceId);
+    }
+  }
+
+  let depth = 0;
+  let current = workspaceId;
+  for (let i = 0; i < 32; i++) {
+    const parent = parentById.get(current);
+    if (!parent) break;
+    depth += 1;
+    current = parent;
+  }
+
+  if (depth >= 32) {
+    throw new Error(
+      `getTaskDepthFromConfig: possible parentWorkspaceId cycle starting at ${workspaceId}`
+    );
+  }
+
+  return depth;
+}
+
 export class AIService extends EventEmitter {
   private readonly streamManager: StreamManager;
   private readonly historyService: HistoryService;
@@ -353,6 +386,7 @@ export class AIService extends EventEmitter {
   private readonly mockModeEnabled: boolean;
   private readonly mockScenarioPlayer?: MockScenarioPlayer;
   private readonly backgroundProcessManager?: BackgroundProcessManager;
+  private taskService?: TaskService;
 
   constructor(
     config: Config,
@@ -389,6 +423,10 @@ export class AIService extends EventEmitter {
   }
   setMCPServerManager(manager: MCPServerManager): void {
     this.mcpServerManager = manager;
+  }
+
+  setTaskService(taskService: TaskService): void {
+    this.taskService = taskService;
   }
 
   /**
@@ -1045,7 +1083,8 @@ export class AIService extends EventEmitter {
       // Filter out assistant messages with only reasoning (no text/tools)
       // EXCEPTION: When extended thinking is enabled, preserve reasoning-only messages
       // to comply with Extended Thinking API requirements
-      const preserveReasoningOnly = Boolean(thinkingLevel);
+      const preserveReasoningOnly =
+        providerName === "anthropic" && thinkingLevel !== undefined && thinkingLevel !== "off";
       const filteredMessages = filterEmptyAssistantMessages(messages, preserveReasoningOnly);
       log.debug(`Filtered ${messages.length - filteredMessages.length} empty assistant messages`);
       log.debug_obj(`${workspaceId}/1a_filtered_messages.json`, filteredMessages);
@@ -1171,7 +1210,10 @@ export class AIService extends EventEmitter {
       log.debug_obj(`${workspaceId}/2_model_messages.json`, modelMessages);
 
       // Apply ModelMessage transforms based on provider requirements
-      const transformedMessages = transformModelMessages(modelMessages, providerName);
+      const transformedMessages = transformModelMessages(modelMessages, providerName, {
+        anthropicThinkingEnabled:
+          providerName === "anthropic" && thinkingLevel !== undefined && thinkingLevel !== "off",
+      });
 
       // Apply cache control for Anthropic models AFTER transformation
       const finalMessages = applyCacheControl(transformedMessages, modelString);
@@ -1188,6 +1230,24 @@ export class AIService extends EventEmitter {
         }
       }
 
+      const cfg = this.config.loadConfigOrDefault();
+      const taskSettings = cfg.taskSettings ?? DEFAULT_TASK_SETTINGS;
+      const taskDepth = getTaskDepthFromConfig(cfg, workspaceId);
+      const shouldDisableTaskToolsForDepth = taskDepth >= taskSettings.maxTaskNestingDepth;
+
+      const agentPreset = getAgentPreset(metadata.agentType);
+      const agentSystemPrompt = agentPreset
+        ? shouldDisableTaskToolsForDepth
+          ? [
+              agentPreset.systemPrompt,
+              "",
+              "Nesting:",
+              `- Task delegation is disabled in this workspace (taskDepth=${taskDepth}, maxTaskNestingDepth=${taskSettings.maxTaskNestingDepth}).`,
+              "- Do not call task/task_await/task_list/task_terminate.",
+            ].join("\n")
+          : agentPreset.systemPrompt
+        : undefined;
+
       // Build system message from workspace metadata
       const systemMessage = await buildSystemMessage(
         metadata,
@@ -1196,7 +1256,8 @@ export class AIService extends EventEmitter {
         mode,
         effectiveAdditionalInstructions,
         modelString,
-        mcpServers
+        mcpServers,
+        agentSystemPrompt ? { variant: "agent", agentSystemPrompt } : undefined
       );
 
       // Count system message tokens for cost tracking
@@ -1277,8 +1338,11 @@ export class AIService extends EventEmitter {
           },
           planFilePath,
           workspaceId,
+          // Only child workspaces (tasks) can report to a parent.
+          enableAgentReport: Boolean(metadata.parentWorkspaceId),
           // External edit detection callback
           recordFileState,
+          taskService: this.taskService,
         },
         workspaceId,
         this.initStateManager,
@@ -1286,13 +1350,26 @@ export class AIService extends EventEmitter {
         mcpTools
       );
 
+      const depthToolPolicy: ToolPolicy = shouldDisableTaskToolsForDepth
+        ? [
+            { regex_match: "task", action: "disable" },
+            { regex_match: "task_.*", action: "disable" },
+          ]
+        : [];
+
+      // Preset + depth tool policies must be applied last so callers cannot re-enable restricted tools.
+      const effectiveToolPolicy =
+        agentPreset || depthToolPolicy.length > 0
+          ? [...(toolPolicy ?? []), ...(agentPreset?.toolPolicy ?? []), ...depthToolPolicy]
+          : toolPolicy;
+
       // Apply tool policy FIRST - this must happen before PTC to ensure sandbox
       // respects allow/deny filters. The policy-filtered tools are passed to
       // ToolBridge so the mux.* API only exposes policy-allowed tools.
-      const policyFilteredTools = applyToolPolicy(allTools, toolPolicy);
+      const policyFilteredTools = applyToolPolicy(allTools, effectiveToolPolicy);
 
       // Handle PTC experiments - add or replace tools with code_execution
-      let tools = policyFilteredTools;
+      let toolsForModel = policyFilteredTools;
       if (experiments?.programmaticToolCalling || experiments?.programmaticToolCallingExclusive) {
         try {
           // Lazy-load PTC modules only when experiments are enabled
@@ -1324,16 +1401,20 @@ export class AIService extends EventEmitter {
             // Non-bridgeable tools can't be used from within code_execution, so they're still
             // available directly to the model (subject to policy)
             const nonBridgeable = toolBridge.getNonBridgeableTools();
-            tools = { ...nonBridgeable, code_execution: codeExecutionTool };
+            toolsForModel = { ...nonBridgeable, code_execution: codeExecutionTool };
           } else {
             // Supplement mode: add code_execution alongside policy-filtered tools
-            tools = { ...policyFilteredTools, code_execution: codeExecutionTool };
+            toolsForModel = { ...policyFilteredTools, code_execution: codeExecutionTool };
           }
         } catch (error) {
           // Fall back to policy-filtered tools if PTC creation fails
           log.error("Failed to create code_execution tool, falling back to base tools", { error });
         }
       }
+
+      // Apply tool policy to the final tool set so tools added by experiments
+      // (e.g., code_execution) are also gated by policy (important for agent presets).
+      const tools = applyToolPolicy(toolsForModel, effectiveToolPolicy);
 
       const effectiveMcpStats: MCPWorkspaceStats =
         mcpStats ??
@@ -1383,7 +1464,7 @@ export class AIService extends EventEmitter {
         workspaceId,
         model: modelString,
         toolNames: Object.keys(tools),
-        hasToolPolicy: Boolean(toolPolicy),
+        hasToolPolicy: Boolean(effectiveToolPolicy),
       });
 
       // Create assistant message placeholder with historySequence from backend

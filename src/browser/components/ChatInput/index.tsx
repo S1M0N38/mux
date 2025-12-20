@@ -22,7 +22,7 @@ import { ModelSettings } from "../ModelSettings";
 import { useAPI } from "@/browser/contexts/API";
 import { useThinkingLevel } from "@/browser/hooks/useThinkingLevel";
 import { migrateGatewayModel } from "@/browser/hooks/useGatewayModels";
-import { enforceThinkingPolicy } from "@/browser/utils/thinking/policy";
+import { enforceThinkingPolicy } from "@/common/utils/thinking/policy";
 import { useSendMessageOptions } from "@/browser/hooks/useSendMessageOptions";
 import {
   getModelKey,
@@ -1483,6 +1483,12 @@ const ChatInputInner: React.FC<ChatInputProps> = (props) => {
         ? `${formatKeybind(KEYBINDS.CANCEL_EDIT)}×2 to cancel`
         : `${formatKeybind(KEYBINDS.CANCEL_EDIT)} to cancel`;
       return `Edit your message... (${cancelHint}, ${formatKeybind(KEYBINDS.SEND_MESSAGE)} to send)`;
+    }
+    if (disabled) {
+      const disabledReason = props.disabledReason;
+      if (typeof disabledReason === "string" && disabledReason.trim().length > 0) {
+        return disabledReason;
+      }
     }
     if (isCompacting) {
       const interruptKeybind = vimEnabled

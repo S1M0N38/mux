@@ -73,6 +73,7 @@ import { ReviewsBanner } from "./ReviewsBanner";
 import type { ReviewNoteData } from "@/common/types/review";
 import { PopoverError } from "./PopoverError";
 import { ConnectionStatusIndicator } from "./ConnectionStatusIndicator";
+import { useWorkspaceContext } from "@/browser/contexts/WorkspaceContext";
 
 interface AIViewProps {
   workspaceId: string;
@@ -99,6 +100,7 @@ const AIViewInner: React.FC<AIViewProps> = ({
   status,
 }) => {
   const { api } = useAPI();
+  const { workspaceMetadata } = useWorkspaceContext();
   const chatAreaRef = useRef<HTMLDivElement>(null);
 
   // Track which right sidebar tab is selected (listener: true to sync with RightSidebar changes)
@@ -134,6 +136,14 @@ const AIViewInner: React.FC<AIViewProps> = ({
   const { statsTabState } = useFeatureFlags();
   const statsEnabled = Boolean(statsTabState?.enabled);
   const workspaceState = useWorkspaceState(workspaceId);
+  const meta = workspaceMetadata.get(workspaceId);
+  const isQueuedAgentTask = Boolean(meta?.parentWorkspaceId) && meta?.taskStatus === "queued";
+  const queuedAgentTaskPrompt =
+    isQueuedAgentTask && typeof meta?.taskPrompt === "string" && meta.taskPrompt.trim().length > 0
+      ? meta.taskPrompt
+      : null;
+  const shouldShowQueuedAgentTaskPrompt =
+    Boolean(queuedAgentTaskPrompt) && (workspaceState?.messages.length ?? 0) === 0;
   const aggregator = useWorkspaceAggregator(workspaceId);
   const workspaceUsage = useWorkspaceUsage(workspaceId);
 
@@ -727,6 +737,14 @@ const AIViewInner: React.FC<AIViewProps> = ({
                   }
                 />
               )}
+              {shouldShowQueuedAgentTaskPrompt && (
+                <QueuedMessage
+                  message={{
+                    id: `queued-agent-task-${workspaceId}`,
+                    content: queuedAgentTaskPrompt ?? "",
+                  }}
+                />
+              )}
               {workspaceState?.queuedMessage && (
                 <QueuedMessage
                   message={workspaceState.queuedMessage}
@@ -768,6 +786,12 @@ const AIViewInner: React.FC<AIViewProps> = ({
         />
         <ReviewsBanner workspaceId={workspaceId} />
         <ConnectionStatusIndicator />
+        {isQueuedAgentTask && (
+          <div className="border-border-medium bg-background-secondary text-muted mb-2 rounded-md border px-3 py-2 text-xs">
+            This agent task is queued and will start automatically when a parallel slot is
+            available.
+          </div>
+        )}
         <ChatInput
           variant="workspace"
           workspaceId={workspaceId}
@@ -775,7 +799,12 @@ const AIViewInner: React.FC<AIViewProps> = ({
           onMessageSent={handleMessageSent}
           onTruncateHistory={handleClearHistory}
           onProviderConfig={handleProviderConfig}
-          disabled={!projectName || !workspaceName}
+          disabled={!projectName || !workspaceName || isQueuedAgentTask}
+          disabledReason={
+            isQueuedAgentTask
+              ? "Queued — waiting for an available parallel task slot. This will start automatically."
+              : undefined
+          }
           isCompacting={isCompacting}
           editingMessage={editingMessage}
           onCancelEdit={handleCancelEdit}

@@ -24,7 +24,7 @@ import type { SendMessageError } from "@/common/types/errors";
 import { createUnknownSendMessageError } from "@/node/services/utils/sendMessageError";
 import type { Result } from "@/common/types/result";
 import { Ok, Err } from "@/common/types/result";
-import { enforceThinkingPolicy } from "@/browser/utils/thinking/policy";
+import { enforceThinkingPolicy } from "@/common/utils/thinking/policy";
 import type { MuxFrontendMetadata, ContinueMessage } from "@/common/types/message";
 import { prepareUserMessageForSend } from "@/common/types/message";
 import { createRuntime } from "@/node/runtime/runtimeFactory";
@@ -415,7 +415,21 @@ export class AgentSession {
         options.editMessageId
       );
       if (!truncateResult.success) {
-        return Err(createUnknownSendMessageError(truncateResult.error));
+        const isMissingEditTarget =
+          truncateResult.error.includes("Message with ID") &&
+          truncateResult.error.includes("not found in history");
+        if (isMissingEditTarget) {
+          // This can happen if the frontend is briefly out-of-sync with persisted history
+          // (e.g., compaction/truncation completed and removed the message while the UI still
+          // shows it as editable). Treat as a no-op truncation so the user can recover.
+          log.warn("editMessageId not found in history; proceeding without truncation", {
+            workspaceId: this.workspaceId,
+            editMessageId: options.editMessageId,
+            error: truncateResult.error,
+          });
+        } else {
+          return Err(createUnknownSendMessageError(truncateResult.error));
+        }
       }
     }
 
@@ -607,6 +621,13 @@ export class AgentSession {
 
     if (!historyResult.success) {
       return Err(createUnknownSendMessageError(historyResult.error));
+    }
+    if (historyResult.data.length === 0) {
+      return Err(
+        createUnknownSendMessageError(
+          "Cannot resume stream: workspace history is empty. Send a new message instead."
+        )
+      );
     }
 
     // Check for external file edits (timestamp-based polling)
