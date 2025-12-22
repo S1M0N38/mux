@@ -9,6 +9,7 @@
  * Uses play functions to navigate to settings and interact with the UI.
  */
 
+import type { Secret } from "@/common/types/secrets";
 import type { APIClient } from "@/browser/contexts/API";
 import { appMeta, AppWithMocks, type AppStory } from "./meta.js";
 import { createWorkspace, groupWorkspacesByProject } from "./mockFactory";
@@ -69,6 +70,8 @@ interface MCPStoryOptions {
   };
   /** Test results for each server (tools available) */
   testResults?: Record<string, string[]>;
+  /** Project secrets (used for secret-backed MCP header dropdowns) */
+  secrets?: Secret[];
   /** Pre-cache test results in localStorage */
   preCacheTools?: boolean;
 }
@@ -124,6 +127,10 @@ function setupMCPStory(options: MCPStoryOptions = {}): APIClient {
     mcpOverrides.set(workspaceId, options.workspaceOverrides);
   }
 
+  const projectSecrets = new Map<string, Secret[]>();
+  if (options.secrets) {
+    projectSecrets.set(projectPath, options.secrets);
+  }
   const mcpTestResults = new Map<string, { success: true; tools: string[] }>();
   if (options.testResults) {
     for (const [serverName, tools] of Object.entries(options.testResults)) {
@@ -134,6 +141,7 @@ function setupMCPStory(options: MCPStoryOptions = {}): APIClient {
   return createMockORPCClient({
     projects: groupWorkspacesByProject(workspaces),
     workspaces,
+    projectSecrets,
     mcpServers,
     mcpOverrides,
     mcpTestResults,
@@ -183,6 +191,75 @@ export const ProjectSettingsEmpty: AppStory = {
   render: () => <AppWithMocks setup={() => setupMCPStory({})} />,
   play: async ({ canvasElement }: { canvasElement: HTMLElement }) => {
     await openProjectSettings(canvasElement);
+  },
+};
+
+/** Project settings - adding a remote server shows the headers table editor */
+export const ProjectSettingsAddRemoteServerHeaders: AppStory = {
+  render: () => (
+    <AppWithMocks
+      setup={() =>
+        setupMCPStory({
+          secrets: [
+            { key: "MCP_TOKEN", value: "abc123" },
+            { key: "MCP_TOKEN_DEV", value: "def456" },
+          ],
+        })
+      }
+    />
+  ),
+  play: async ({ canvasElement }: { canvasElement: HTMLElement }) => {
+    await openProjectSettings(canvasElement);
+
+    const body = within(canvasElement.ownerDocument.body);
+
+    const addServerSummary = await body.findByText(/^Add server$/i);
+    await userEvent.click(addServerSummary);
+
+    // Switch the transport to HTTP to reveal the headers editor.
+    const transportLabel = await body.findByText("Transport");
+    const transportContainer = transportLabel.closest("div");
+    await expect(transportContainer).not.toBeNull();
+
+    const transportSelect = within(transportContainer as HTMLElement).getByRole("combobox");
+    await userEvent.click(transportSelect);
+
+    const httpOption = await body.findByRole("option", { name: /HTTP \(Streamable\)/i });
+    await userEvent.click(httpOption);
+
+    const headersLabel = await body.findByText(/HTTP headers \(optional\)/i);
+    headersLabel.scrollIntoView({ block: "center" });
+
+    // Configure a secret-backed Authorization header.
+    const addHeaderButton = await body.findByRole("button", { name: /\+ Add header/i });
+    await userEvent.click(addHeaderButton);
+
+    const headerNameInputs = body.getAllByPlaceholderText("Authorization");
+    await userEvent.type(headerNameInputs[0], "Authorization");
+
+    const secretToggles = body.getAllByRole("radio", { name: "Secret" });
+    await userEvent.click(secretToggles[0]);
+
+    await expect(
+      body.findByRole("button", { name: /Choose secret/i })
+    ).resolves.toBeInTheDocument();
+
+    const secretValueInput = await body.findByPlaceholderText("MCP_TOKEN");
+    await userEvent.type(secretValueInput, "MCP_TOKEN");
+
+    // Add a second plain-text header.
+    await userEvent.click(addHeaderButton);
+
+    const headerNameInputsAfterSecond = body.getAllByPlaceholderText("Authorization");
+    await userEvent.type(headerNameInputsAfterSecond[1], "X-Env");
+
+    const textValueInput = await body.findByPlaceholderText("value");
+    await userEvent.type(textValueInput, "prod");
+
+    await expect(body.findByDisplayValue("Authorization")).resolves.toBeInTheDocument();
+    await expect(body.findByDisplayValue("MCP_TOKEN")).resolves.toBeInTheDocument();
+    await expect(body.findByDisplayValue("X-Env")).resolves.toBeInTheDocument();
+    await expect(body.findByDisplayValue("prod")).resolves.toBeInTheDocument();
   },
 };
 
