@@ -74,7 +74,7 @@ function constructSendMessageOptions(
     thinkingLevel: uiThinking,
     model,
     agentId,
-    mode: mode === "exec" || mode === "plan" ? mode : "exec", // Only pass exec/plan to backend
+    mode: mode === "chat" || mode === "plan" || mode === "exec" ? mode : "exec", // Only pass chat/plan/exec to backend
     toolPolicy: modeToToolPolicy(mode),
     providerOptions,
     experiments: {

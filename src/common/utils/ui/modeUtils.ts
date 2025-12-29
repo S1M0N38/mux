@@ -61,6 +61,16 @@ export function getPlanFileHint(planFilePath: string, planExists: boolean): stri
  * but strict path enforcement in file_edit_operation.ts restricts edits to only the plan file.
  */
 export function modeToToolPolicy(mode: UIMode): ToolPolicy {
+  if (mode === "chat") {
+    return [
+      { regex_match: "propose_plan", action: "disable" },
+      { regex_match: "file_edit_.*", action: "disable" },
+      { regex_match: "(?:bash|bash_output|bash_background_.*)", action: "disable" },
+      { regex_match: "task", action: "disable" },
+      { regex_match: "task_.*", action: "disable" },
+    ];
+  }
+
   if (mode === "plan") {
     return [
       { regex_match: "propose_plan", action: "enable" },

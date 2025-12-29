@@ -4,7 +4,7 @@ import { z } from "zod";
  * UI Mode types
  */
 
-export const UI_MODE_VALUES = ["plan", "exec"] as const;
+export const UI_MODE_VALUES = ["chat", "plan", "exec"] as const;
 export const UIModeSchema = z.enum(UI_MODE_VALUES);
 export type UIMode = z.infer<typeof UIModeSchema>;
 

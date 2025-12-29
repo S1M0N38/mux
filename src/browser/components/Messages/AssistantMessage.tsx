@@ -43,7 +43,10 @@ export const AssistantMessage: React.FC<AssistantMessageProps> = ({
     modal,
   } = useStartHere(workspaceId, content, isCompacted, {
     sourceMode:
-      message.mode === "exec" || message.mode === "plan" || message.mode === "compact"
+      message.mode === "chat" ||
+      message.mode === "exec" ||
+      message.mode === "plan" ||
+      message.mode === "compact"
         ? message.mode
         : undefined,
   });

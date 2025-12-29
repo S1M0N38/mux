@@ -53,6 +53,11 @@
     --color-exec-mode-hover: hsl(268.56 94.04% 67%);
     --color-exec-mode-light: hsl(268.56 94.04% 78%);
 
+    /* Chat mode: teal/green for read-only exploration */
+    --color-chat-mode: hsl(160 50% 40%);
+    --color-chat-mode-hover: hsl(160 50% 50%);
+    --color-chat-mode-light: hsl(160 50% 65%);
+
     /* Edit mode: amber/gold for editing warnings and barriers */
     --color-edit-mode: hsl(38 80% 45%);
     --color-edit-mode-hover: hsl(38 80% 55%);
@@ -332,6 +337,10 @@
   --color-exec-mode-hover: hsl(268.56 94.04% 67%);
   --color-exec-mode-light: hsl(268.56 94.04% 78%);
 
+  --color-chat-mode: hsl(160 50% 38%);
+  --color-chat-mode-hover: hsl(160 50% 48%);
+  --color-chat-mode-light: hsl(160 50% 60%);
+
   --color-pending: hsl(30 100% 64%);
 
   --color-debug-mode: hsl(214 100% 56%);
@@ -571,6 +580,10 @@
   --color-exec-mode-hover: hsl(237 43% 70%);
   --color-exec-mode-light: hsl(237 43% 78%);
 
+  --color-chat-mode: hsl(175 75% 41%); /* cyan */
+  --color-chat-mode-hover: hsl(175 75% 51%);
+  --color-chat-mode-light: hsl(175 75% 62%);
+
   --color-pending: hsl(18 89% 44%); /* orange */
 
   --color-debug-mode: hsl(205 69% 49%);
@@ -779,6 +792,10 @@
   --color-exec-mode: hsl(237 43% 60%); /* violet */
   --color-exec-mode-hover: hsl(237 43% 70%);
   --color-exec-mode-light: hsl(237 43% 78%);
+
+  --color-chat-mode: hsl(175 75% 41%); /* cyan */
+  --color-chat-mode-hover: hsl(175 75% 51%);
+  --color-chat-mode-light: hsl(175 75% 62%);
 
   --color-pending: hsl(18 89% 44%); /* orange */
 

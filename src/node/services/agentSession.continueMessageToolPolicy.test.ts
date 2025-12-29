@@ -47,10 +47,19 @@ describe("Continue message tool policy derivation", () => {
     // const continueMode = continueMessage.mode ?? "exec";
     // toolPolicy: modeToToolPolicy(continueMode)
 
-    const simulateContinueMessagePolicy = (mode?: "exec" | "plan") => {
+    const simulateContinueMessagePolicy = (mode?: "chat" | "plan" | "exec") => {
       const continueMode = mode ?? "exec"; // Default to exec as in the fix
       return modeToToolPolicy(continueMode);
     };
+
+    // Explicit chat mode
+    expect(simulateContinueMessagePolicy("chat")).toEqual([
+      { regex_match: "propose_plan", action: "disable" },
+      { regex_match: "file_edit_.*", action: "disable" },
+      { regex_match: "(?:bash|bash_output|bash_background_.*)", action: "disable" },
+      { regex_match: "task", action: "disable" },
+      { regex_match: "task_.*", action: "disable" },
+    ]);
 
     // Explicit exec mode
     expect(simulateContinueMessagePolicy("exec")).toEqual([

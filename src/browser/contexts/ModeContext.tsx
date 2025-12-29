@@ -81,7 +81,12 @@ export const ModeProvider: React.FC<ModeProviderProps> = (props) => {
 
   const cycleOtherAgentId = useMemo(() => {
     const pinnedAgentId = normalizeOptionalAgentId(pinnedAgentIdRaw);
-    if (!pinnedAgentId || pinnedAgentId === "exec" || pinnedAgentId === "plan") {
+    if (
+      !pinnedAgentId ||
+      pinnedAgentId === "chat" ||
+      pinnedAgentId === "plan" ||
+      pinnedAgentId === "exec"
+    ) {
       return "";
     }
 

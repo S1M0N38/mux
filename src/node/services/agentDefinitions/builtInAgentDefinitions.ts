@@ -2,6 +2,29 @@ import type { AgentDefinitionPackage } from "@/common/types/agentDefinition";
 
 const BUILT_IN_PACKAGES: AgentDefinitionPackage[] = [
   {
+    id: "chat",
+    scope: "built-in",
+    frontmatter: {
+      name: "Chat",
+      description: "General-purpose conversation with read-only codebase access",
+      permissionMode: "default",
+      subagent: { runnable: false },
+      policy: {
+        base: "chat",
+        tools: {
+          only: ["file_read", "web_fetch", "web_search", "google_search"],
+        },
+      },
+    },
+    body: [
+      "You are in Chat Mode.",
+      "",
+      "- Answer questions and explore the codebase using read-only tools.",
+      "- You cannot edit files, run shell commands, or spawn subagents.",
+      "- If the user wants code changes, ask them to switch to Exec mode.",
+    ].join("\n"),
+  },
+  {
     id: "plan",
     scope: "built-in",
     frontmatter: {

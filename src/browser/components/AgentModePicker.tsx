@@ -48,6 +48,8 @@ function formatAgentIdLabel(agentId: string): string {
 
   // Avoid label flicker while agent definitions are still loading.
   switch (agentId) {
+    case "chat":
+      return "Chat";
     case "exec":
       return "Exec";
     case "plan":
@@ -85,7 +87,7 @@ const AgentHelpTooltip: React.FC = () => (
       Selects an agent definition (system prompt + tool policy).
       <br />
       <br />
-      Cycle between Exec → Plan → Other with: {formatKeybind(KEYBINDS.TOGGLE_MODE)}
+      Cycle between Chat → Plan → Exec → Other with: {formatKeybind(KEYBINDS.TOGGLE_MODE)}
     </TooltipContent>
   </Tooltip>
 );
@@ -93,7 +95,7 @@ const AgentHelpTooltip: React.FC = () => (
 function resolveAgentOptions(agents: AgentDefinitionDescriptor[]): AgentOption[] {
   const selectable = agents.filter((entry) => entry.uiSelectable);
 
-  // Defensive: If agent discovery failed (or is unavailable), fall back to Exec/Plan.
+  // Defensive: If agent discovery failed (or is unavailable), fall back to Chat/Plan/Exec.
   const base: AgentOption[] =
     selectable.length > 0
       ? selectable.map((entry) => ({
@@ -103,22 +105,29 @@ function resolveAgentOptions(agents: AgentDefinitionDescriptor[]): AgentOption[]
           uiColor: entry.uiColor,
         }))
       : [
-          { id: "exec", name: "Exec", policyBase: "exec" },
+          { id: "chat", name: "Chat", policyBase: "chat" },
           { id: "plan", name: "Plan", policyBase: "plan" },
+          { id: "exec", name: "Exec", policyBase: "exec" },
         ];
 
-  // Prefer showing Exec/Plan first in the picker (for discoverability / keyboard-only use).
-  const exec = base.find((opt) => opt.id === "exec");
+  // Prefer showing Chat/Plan/Exec first in the picker (for discoverability / keyboard-only use).
+  const chat = base.find((opt) => opt.id === "chat");
   const plan = base.find((opt) => opt.id === "plan");
-  const rest = base.filter((opt) => opt.id !== "exec" && opt.id !== "plan");
+  const exec = base.find((opt) => opt.id === "exec");
+  const rest = base.filter((opt) => opt.id !== "chat" && opt.id !== "plan" && opt.id !== "exec");
 
-  return [exec, plan, ...rest].filter((opt): opt is AgentOption => Boolean(opt));
+  return [chat, plan, exec, ...rest].filter((opt): opt is AgentOption => Boolean(opt));
 }
 
 function resolveActiveClassName(policyBase: AgentDefinitionDescriptor["policyBase"]): string {
-  return policyBase === "plan"
-    ? "bg-plan-mode text-white hover:bg-plan-mode-hover"
-    : "bg-exec-mode text-white hover:bg-exec-mode-hover";
+  switch (policyBase) {
+    case "chat":
+      return "bg-chat-mode text-white hover:bg-chat-mode-hover";
+    case "plan":
+      return "bg-plan-mode text-white hover:bg-plan-mode-hover";
+    default:
+      return "bg-exec-mode text-white hover:bg-exec-mode-hover";
+  }
 }
 
 export const AgentModePicker: React.FC<AgentModePickerProps> = (props) => {
@@ -205,7 +214,8 @@ export const AgentModePicker: React.FC<AgentModePickerProps> = (props) => {
 
     return options.some((opt) => opt.id === normalizedAgentId);
   }, [normalizedAgentId, options]);
-  const isBuiltinAgent = normalizedAgentId === "exec" || normalizedAgentId === "plan";
+  const isBuiltinAgent =
+    normalizedAgentId === "chat" || normalizedAgentId === "plan" || normalizedAgentId === "exec";
 
   const filteredOptions = useMemo(() => {
     const query = filter.trim().toLowerCase();
@@ -418,22 +428,22 @@ export const AgentModePicker: React.FC<AgentModePickerProps> = (props) => {
   return (
     <div ref={containerRef} className={cn("relative flex items-center gap-1.5", props.className)}>
       <div className="bg-toggle-bg flex gap-0 rounded">
-        {/* Exec */}
+        {/* Chat */}
         <button
           type="button"
           onClick={() => {
-            setAgentId("exec");
+            setAgentId("chat");
             onComplete?.();
           }}
-          aria-pressed={normalizedAgentId === "exec"}
+          aria-pressed={normalizedAgentId === "chat"}
           className={cn(
             buttonBaseClassName,
-            normalizedAgentId === "exec"
-              ? "bg-exec-mode text-white hover:bg-exec-mode-hover font-medium"
+            normalizedAgentId === "chat"
+              ? "bg-chat-mode text-white hover:bg-chat-mode-hover font-medium"
               : inactiveClassName
           )}
         >
-          Exec
+          Chat
         </button>
 
         {/* Plan */}
@@ -454,6 +464,24 @@ export const AgentModePicker: React.FC<AgentModePickerProps> = (props) => {
           Plan
         </button>
 
+        {/* Exec */}
+        <button
+          type="button"
+          onClick={() => {
+            setAgentId("exec");
+            onComplete?.();
+          }}
+          aria-pressed={normalizedAgentId === "exec"}
+          className={cn(
+            buttonBaseClassName,
+            normalizedAgentId === "exec"
+              ? "bg-exec-mode text-white hover:bg-exec-mode-hover font-medium"
+              : inactiveClassName
+          )}
+        >
+          Exec
+        </button>
+
         {/* Pinned / Other */}
         <button
           type="button"
@@ -470,7 +498,7 @@ export const AgentModePicker: React.FC<AgentModePickerProps> = (props) => {
               return;
             }
 
-            // In exec/plan, clicking the third segment selects the pinned agent (if present).
+            // In chat/plan/exec, clicking the fourth segment selects the pinned agent (if present).
             if (effectivePinnedAgentId) {
               setAgentId(effectivePinnedAgentId);
               onComplete?.();

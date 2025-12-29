@@ -109,7 +109,17 @@ export function resolveToolPolicyForAgent(options: ResolveToolPolicyOptions): To
 
   // NOTE: Hard-denies must be applied last so callers cannot re-enable them.
   const baseHardDeny: ToolPolicy =
-    base === "exec" ? [{ regex_match: "propose_plan", action: "disable" }] : [];
+    base === "exec"
+      ? [{ regex_match: "propose_plan", action: "disable" }]
+      : base === "chat"
+        ? [
+            { regex_match: "file_edit_.*", action: "disable" },
+            { regex_match: "(?:bash|bash_output|bash_background_.*)", action: "disable" },
+            { regex_match: "task", action: "disable" },
+            { regex_match: "task_.*", action: "disable" },
+            { regex_match: "propose_plan", action: "disable" },
+          ]
+        : [];
   const depthPolicy: ToolPolicy = options.disableTaskToolsForDepth ? DEPTH_HARD_DENY : [];
   const subagentPolicy: ToolPolicy = options.isSubagent ? SUBAGENT_HARD_DENY : [];
   const subagentAlwaysAllow: ToolPolicy = options.isSubagent

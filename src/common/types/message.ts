@@ -32,7 +32,7 @@ export interface UserMessageContent {
 export interface ContinueMessage extends UserMessageContent {
   model?: string;
   /** Mode for the continue message (determines tool policy). Defaults to 'exec'. */
-  mode?: "exec" | "plan";
+  mode?: "chat" | "plan" | "exec";
 }
 
 // Parsed compaction request data (shared type for consistency)
