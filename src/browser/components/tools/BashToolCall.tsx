@@ -22,7 +22,7 @@ import {
   type ToolStatus,
 } from "./shared/toolUtils";
 import { cn } from "@/common/lib/utils";
-import { useBashToolLiveOutput } from "@/browser/stores/WorkspaceStore";
+import { useBashToolLiveOutput, useLatestStreamingBashId } from "@/browser/stores/WorkspaceStore";
 import { Tooltip, TooltipTrigger, TooltipContent } from "../ui/tooltip";
 
 interface BashToolCallProps {
@@ -55,10 +55,12 @@ export const BashToolCall: React.FC<BashToolCallProps> = ({
   canSendToBackground,
   onSendToBackground,
 }) => {
-  const { expanded, toggleExpanded } = useToolExpansion();
+  const { expanded, setExpanded, toggleExpanded } = useToolExpansion();
   const [elapsedTime, setElapsedTime] = useState(0);
 
   const liveOutput = useBashToolLiveOutput(workspaceId, toolCallId);
+  const latestStreamingBashId = useLatestStreamingBashId(workspaceId);
+  const isLatestStreamingBash = latestStreamingBashId === toolCallId;
 
   const outputRef = useRef<HTMLPreElement>(null);
   const outputPinnedRef = useRef(true);
@@ -79,6 +81,47 @@ export const BashToolCall: React.FC<BashToolCallProps> = ({
     }
   }, [combinedLiveOutput]);
   const startTimeRef = useRef<number>(startedAt ?? Date.now());
+
+  // Track whether user manually toggled expansion to avoid fighting with auto-expand
+  const userToggledRef = useRef(false);
+  // Track whether this bash was auto-expanded (so we know to auto-collapse it)
+  const wasAutoExpandedRef = useRef(false);
+  // Timer for delayed auto-expand
+  const expandTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Auto-expand after a delay when this is the latest streaming bash.
+  // Delay prevents layout flash for fast-completing commands.
+  // Auto-collapse when a NEW bash starts streaming (but not on completion).
+  useEffect(() => {
+    if (userToggledRef.current) return; // Don't override user's choice
+
+    if (isLatestStreamingBash && status === "executing") {
+      // Delay expansion - if command completes quickly, we skip the expand entirely
+      expandTimerRef.current = setTimeout(() => {
+        if (!userToggledRef.current) {
+          setExpanded(true);
+          wasAutoExpandedRef.current = true;
+        }
+      }, 300);
+    } else {
+      // Clear pending expand if command finished before delay
+      if (expandTimerRef.current) {
+        clearTimeout(expandTimerRef.current);
+        expandTimerRef.current = null;
+      }
+      // Collapse if a NEW bash took over (latestStreamingBashId is not null and not us)
+      if (wasAutoExpandedRef.current && latestStreamingBashId !== null) {
+        setExpanded(false);
+        wasAutoExpandedRef.current = false;
+      }
+    }
+
+    return () => {
+      if (expandTimerRef.current) {
+        clearTimeout(expandTimerRef.current);
+      }
+    };
+  }, [isLatestStreamingBash, latestStreamingBashId, status, setExpanded]);
 
   // Track elapsed time for pending/executing status
   useEffect(() => {
@@ -111,9 +154,14 @@ export const BashToolCall: React.FC<BashToolCallProps> = ({
   const showLiveOutput =
     !isBackground && (status === "executing" || (Boolean(liveOutput) && !resultHasOutput));
 
+  const handleToggle = () => {
+    userToggledRef.current = true;
+    toggleExpanded();
+  };
+
   return (
     <ToolContainer expanded={expanded}>
-      <ToolHeader onClick={toggleExpanded}>
+      <ToolHeader onClick={handleToggle}>
         <ExpandIcon expanded={expanded}>▶</ExpandIcon>
         <ToolIcon emoji="🔧" toolName="bash" />
         <span className="text-text font-monospace max-w-96 truncate">{args.script}</span>
