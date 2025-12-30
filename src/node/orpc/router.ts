@@ -304,7 +304,7 @@ export const router = (authToken?: string) => {
 
             const legacySubagentDefaultsRaw: Record<string, unknown> = {};
             for (const [agentType, entry] of Object.entries(normalized)) {
-              if (agentType === "plan" || agentType === "exec" || agentType === "compact") {
+              if (agentType === "chat" || agentType === "plan" || agentType === "exec" || agentType === "compact") {
                 continue;
               }
               legacySubagentDefaultsRaw[agentType] = entry;
@@ -347,7 +347,7 @@ export const router = (authToken?: string) => {
               if (input.subagentAiDefaults === undefined) {
                 const legacySubagentDefaultsRaw: Record<string, unknown> = {};
                 for (const [agentType, entry] of Object.entries(normalized)) {
-                  if (agentType === "plan" || agentType === "exec" || agentType === "compact") {
+                  if (agentType === "chat" || agentType === "plan" || agentType === "exec" || agentType === "compact") {
                     continue;
                   }
                   legacySubagentDefaultsRaw[agentType] = entry;
@@ -389,7 +389,7 @@ export const router = (authToken?: string) => {
               }
 
               for (const [agentType, entry] of Object.entries(normalizedDefaults)) {
-                if (agentType === "plan" || agentType === "exec" || agentType === "compact")
+                if (agentType === "chat" || agentType === "plan" || agentType === "exec" || agentType === "compact")
                   continue;
                 nextAgentAiDefaults[agentType] = entry;
               }

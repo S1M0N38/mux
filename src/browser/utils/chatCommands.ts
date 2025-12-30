@@ -655,8 +655,13 @@ export function prepareCompactionMessage(options: CompactionOptions): {
   // Create compaction metadata (will be stored in user message)
   // Only include continueMessage if there's text, images, or reviews to queue after compaction
   const hasText = continueText;
-  // Determine mode for continue message - use mode from sendMessageOptions if it's exec/plan, otherwise default to exec
-  const continueMode = options.sendMessageOptions.mode === "plan" ? "plan" : "exec";
+  // Determine mode for continue message - use mode from sendMessageOptions if valid, otherwise default to exec
+  const continueMode =
+    options.sendMessageOptions.mode === "chat"
+      ? "chat"
+      : options.sendMessageOptions.mode === "plan"
+        ? "plan"
+        : "exec";
 
   const compactData: CompactionRequestData = {
     model: effectiveModel,

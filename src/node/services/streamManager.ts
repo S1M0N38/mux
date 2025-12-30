@@ -876,7 +876,7 @@ export class StreamManager extends EventEmitter {
       // Emit stream start event (include mode from initialMetadata if available)
       // Validate mode - stats schema only accepts "plan" | "exec" for now
       const rawMode = streamInfo.initialMetadata?.mode;
-      const streamStartMode = rawMode === "plan" || rawMode === "exec" ? rawMode : undefined;
+      const streamStartMode = rawMode === "chat" || rawMode === "plan" || rawMode === "exec" ? rawMode : undefined;
       this.emit("stream-start", {
         type: "stream-start",
         workspaceId: workspaceId as string,
@@ -1819,7 +1819,7 @@ export class StreamManager extends EventEmitter {
     // Validate mode - stats schema only accepts "plan" | "exec" for now
     const rawReplayMode = streamInfo.initialMetadata?.mode;
     const replayMode =
-      rawReplayMode === "plan" || rawReplayMode === "exec" ? rawReplayMode : undefined;
+      rawReplayMode === "chat" || rawReplayMode === "plan" || rawReplayMode === "exec" ? rawReplayMode : undefined;
     this.emit("stream-start", {
       type: "stream-start",
       workspaceId,

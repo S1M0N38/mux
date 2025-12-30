@@ -485,7 +485,7 @@ export class SessionTimingService {
 
     // Validate mode: stats schema only accepts "plan" | "exec" for now.
     // Custom modes will need schema updates when supported.
-    const mode = data.mode === "plan" || data.mode === "exec" ? data.mode : undefined;
+    const mode = data.mode === "chat" || data.mode === "plan" || data.mode === "exec" ? data.mode : undefined;
 
     const state: ActiveStreamState = {
       workspaceId: data.workspaceId,

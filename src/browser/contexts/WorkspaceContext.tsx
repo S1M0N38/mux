@@ -78,7 +78,7 @@ function seedWorkspaceLocalStorageFromBackend(metadata: FrontendWorkspaceMetadat
   const existingByMode = readPersistedState<WorkspaceAISettingsByModeCache>(byModeKey, {});
   const nextByMode: WorkspaceAISettingsByModeCache = { ...existingByMode };
 
-  for (const mode of ["plan", "exec"] as const) {
+  for (const mode of ["chat", "plan", "exec"] as const) {
     const entry = aiByMode[mode];
     if (!entry) continue;
     if (typeof entry.model !== "string" || entry.model.length === 0) continue;

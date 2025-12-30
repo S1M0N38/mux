@@ -221,7 +221,7 @@ export class Config {
 
         const legacySubagent: Record<string, unknown> = {};
         for (const [id, entry] of Object.entries(config.agentAiDefaults)) {
-          if (id === "plan" || id === "exec" || id === "compact") continue;
+          if (id === "chat" || id === "plan" || id === "exec" || id === "compact") continue;
           legacySubagent[id] = entry;
         }
         if (Object.keys(legacySubagent).length > 0) {
