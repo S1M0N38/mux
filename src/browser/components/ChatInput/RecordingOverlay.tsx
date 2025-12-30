@@ -12,17 +12,20 @@ import type { VoiceInputState } from "@/browser/hooks/useVoiceInput";
 
 /** Canvas fill colors for the waveform (slightly lighter than CSS vars for visibility) */
 const MODE_COLORS: Record<UIMode, string> = {
+  chat: "hsl(160, 50%, 55%)",
   plan: "hsl(210, 70%, 55%)",
   exec: "hsl(268, 94%, 65%)",
 };
 
 /** Tailwind classes for recording state, keyed by mode */
 const RECORDING_CLASSES: Record<UIMode, string> = {
+  chat: "cursor-pointer border-chat-mode bg-chat-mode/10",
   plan: "cursor-pointer border-plan-mode bg-plan-mode/10",
   exec: "cursor-pointer border-exec-mode bg-exec-mode/10",
 };
 
 const TEXT_CLASSES: Record<UIMode, string> = {
+  chat: "text-chat-mode-light",
   plan: "text-plan-mode-light",
   exec: "text-exec-mode-light",
 };

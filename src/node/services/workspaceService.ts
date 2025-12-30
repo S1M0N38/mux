@@ -1187,6 +1187,7 @@ export class WorkspaceService extends EventEmitter {
     workspaceEntryWithFallback.aiSettings =
       workspaceEntryWithFallback.aiSettingsByMode.exec ??
       workspaceEntryWithFallback.aiSettingsByMode.plan ??
+      workspaceEntryWithFallback.aiSettingsByMode.chat ??
       aiSettings;
 
     await this.config.saveConfig(config);

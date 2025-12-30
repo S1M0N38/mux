@@ -30,6 +30,7 @@ const STATE_COLORS: Record<VoiceInputState, string> = {
 };
 
 const RECORDING_COLORS: Record<UIMode, string> = {
+  chat: "text-chat-mode-light animate-pulse",
   plan: "text-plan-mode-light animate-pulse",
   exec: "text-exec-mode-light animate-pulse",
 };

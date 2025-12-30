@@ -19,10 +19,11 @@ export const WorkspaceAISettingsSchema = z.object({
  * Per-mode workspace AI overrides.
  *
  * Notes:
- * - Only includes UI modes (plan/exec). Compact is intentionally excluded.
+ * - Only includes UI modes (chat/plan/exec). Compact is intentionally excluded.
  */
 export const WorkspaceAISettingsByModeSchema = z
   .object({
+    chat: WorkspaceAISettingsSchema.optional(),
     plan: WorkspaceAISettingsSchema.optional(),
     exec: WorkspaceAISettingsSchema.optional(),
   })
