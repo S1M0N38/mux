@@ -28,9 +28,9 @@ const TUTORIAL_SEQUENCES: Record<TutorialSequence, TutorialStep[]> = {
     },
     {
       target: "mode-selector",
-      title: "Exec vs Plan Mode",
+      title: "Chat, Plan & Exec Modes",
       content:
-        "Exec mode lets the AI edit files and run commands. Plan mode is read-only - use it to scope the agent's implementation.",
+        "Chat mode is for read-only exploration. Plan mode scopes implementation without edits. Exec mode lets the AI edit files and run commands.",
       position: "top",
     },
     {

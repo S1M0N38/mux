@@ -340,7 +340,7 @@ export const AgentModePicker: React.FC<AgentModePickerProps> = (props) => {
       setAgentId(normalized);
 
       // Only non-builtin agents should affect the pinned third option.
-      if (normalized !== "exec" && normalized !== "plan") {
+      if (normalized !== "chat" && normalized !== "exec" && normalized !== "plan") {
         setPinnedAgentIdRaw(normalized);
       }
 
@@ -482,56 +482,60 @@ export const AgentModePicker: React.FC<AgentModePickerProps> = (props) => {
           Exec
         </button>
 
-        {/* Pinned / Other */}
-        <button
-          type="button"
-          onClick={() => {
-            // If we're currently on a non-builtin agent (including non-selectable agents like
-            // Explore in subagent workspaces), this segment is already selected.
-            //
-            // For non-selectable agents, allow clicking to open the picker so the user can
-            // switch away.
-            if (!isBuiltinAgent) {
-              if (!activeIsSelectable) {
+        {/* Pinned / Other - only show when there's a pinned agent or current agent is custom */}
+        {(effectivePinnedAgentId || !isBuiltinAgent) && (
+          <>
+            <button
+              type="button"
+              onClick={() => {
+                // If we're currently on a non-builtin agent (including non-selectable agents like
+                // Explore in subagent workspaces), this segment is already selected.
+                //
+                // For non-selectable agents, allow clicking to open the picker so the user can
+                // switch away.
+                if (!isBuiltinAgent) {
+                  if (!activeIsSelectable) {
+                    openPicker();
+                  }
+                  return;
+                }
+
+                // In chat/plan/exec, clicking the fourth segment selects the pinned agent (if present).
+                if (effectivePinnedAgentId) {
+                  setAgentId(effectivePinnedAgentId);
+                  onComplete?.();
+                  return;
+                }
+
                 openPicker();
-              }
-              return;
-            }
-
-            // In chat/plan/exec, clicking the fourth segment selects the pinned agent (if present).
-            if (effectivePinnedAgentId) {
-              setAgentId(effectivePinnedAgentId);
-              onComplete?.();
-              return;
-            }
-
-            openPicker();
-          }}
-          aria-pressed={thirdIsActive}
-          style={thirdActiveStyle}
-          className={cn(
-            buttonBaseClassName,
-            "flex items-center gap-1",
-            thirdIsActive ? cn("font-medium", thirdActiveClassName) : inactiveClassName
-          )}
-        >
-          <span className="max-w-[110px] truncate">{thirdLabel}</span>
-        </button>
-        <button
-          type="button"
-          aria-label="Choose agent"
-          onClick={() => {
-            openPicker();
-          }}
-          style={thirdActiveStyle}
-          className={cn(
-            buttonBaseClassName,
-            "px-1",
-            thirdIsActive ? cn("font-medium", thirdActiveClassName) : inactiveClassName
-          )}
-        >
-          <ChevronDown className="h-3 w-3" />
-        </button>
+              }}
+              aria-pressed={thirdIsActive}
+              style={thirdActiveStyle}
+              className={cn(
+                buttonBaseClassName,
+                "flex items-center gap-1",
+                thirdIsActive ? cn("font-medium", thirdActiveClassName) : inactiveClassName
+              )}
+            >
+              <span className="max-w-[110px] truncate">{thirdLabel}</span>
+            </button>
+            <button
+              type="button"
+              aria-label="Choose agent"
+              onClick={() => {
+                openPicker();
+              }}
+              style={thirdActiveStyle}
+              className={cn(
+                buttonBaseClassName,
+                "px-1",
+                thirdIsActive ? cn("font-medium", thirdActiveClassName) : inactiveClassName
+              )}
+            >
+              <ChevronDown className="h-3 w-3" />
+            </button>
+          </>
+        )}
       </div>
 
       <AgentHelpTooltip />

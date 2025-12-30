@@ -45,8 +45,10 @@ function coerceAgentId(value: unknown): string {
 function resolveModeFromAgentId(agentId: string, agents: AgentDefinitionDescriptor[]): UIMode {
   const normalizedAgentId = coerceAgentId(agentId);
   const descriptor = agents.find((entry) => entry.id === normalizedAgentId);
-  const base = descriptor?.policyBase ?? (normalizedAgentId === "plan" ? "plan" : "exec");
-  return base === "plan" ? "plan" : "exec";
+  const base =
+    descriptor?.policyBase ??
+    (normalizedAgentId === "chat" ? "chat" : normalizedAgentId === "plan" ? "plan" : "exec");
+  return base === "chat" ? "chat" : base === "plan" ? "plan" : "exec";
 }
 
 export const ModeProvider: React.FC<ModeProviderProps> = (props) => {
@@ -161,21 +163,28 @@ export const ModeProvider: React.FC<ModeProviderProps> = (props) => {
 
       const normalizedAgentId = coerceAgentId(agentId);
 
-      // Cycle Exec -> Plan -> Other (pinned) -> Exec.
-      if (normalizedAgentId === "exec") {
+      // Cycle Chat -> Plan -> Exec -> Other (pinned) -> Chat.
+      if (normalizedAgentId === "chat") {
         setAgentId("plan");
         return;
       }
 
       if (normalizedAgentId === "plan") {
-        if (cycleOtherAgentId) {
-          setAgentId(cycleOtherAgentId);
-        }
-        window.dispatchEvent(createCustomEvent(CUSTOM_EVENTS.OPEN_AGENT_PICKER));
+        setAgentId("exec");
         return;
       }
 
-      setAgentId("exec");
+      if (normalizedAgentId === "exec") {
+        if (cycleOtherAgentId) {
+          setAgentId(cycleOtherAgentId);
+          return;
+        }
+        setAgentId("chat");
+        return;
+      }
+
+      // Any other agent (pinned/custom) cycles back to chat.
+      setAgentId("chat");
     };
 
     window.addEventListener("keydown", handleKeyDown);
