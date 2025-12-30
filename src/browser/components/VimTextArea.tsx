@@ -254,7 +254,12 @@ export const VimTextArea = React.forwardRef<HTMLTextAreaElement, VimTextAreaProp
               isEditing
                 ? "bg-editing-mode-alpha border-editing-mode focus:border-editing-mode"
                 : "bg-dark border-border-light",
-              !isEditing && (mode === "plan" ? "focus:border-plan-mode" : "focus:border-exec-mode"),
+              !isEditing &&
+                (mode === "chat"
+                  ? "focus:border-chat-mode"
+                  : mode === "plan"
+                    ? "focus:border-plan-mode"
+                    : "focus:border-exec-mode"),
               vimMode === "normal"
                 ? "caret-transparent selection:bg-white/50"
                 : "caret-current selection:bg-selection",

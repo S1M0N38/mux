@@ -348,9 +348,11 @@ function ChatComposerInner(props: {
                   aria-label="Send message"
                   className={cn(
                     "inline-flex items-center gap-1 rounded-sm border border-border-light px-1.5 py-0.5 text-[11px] font-medium text-white transition-colors duration-200 disabled:opacity-50",
-                    mode === "plan"
-                      ? "bg-plan-mode hover:bg-plan-mode-hover disabled:hover:bg-plan-mode"
-                      : "bg-exec-mode hover:bg-exec-mode-hover disabled:hover:bg-exec-mode"
+                    mode === "chat"
+                      ? "bg-chat-mode hover:bg-chat-mode-hover disabled:hover:bg-chat-mode"
+                      : mode === "plan"
+                        ? "bg-plan-mode hover:bg-plan-mode-hover disabled:hover:bg-plan-mode"
+                        : "bg-exec-mode hover:bg-exec-mode-hover disabled:hover:bg-exec-mode"
                   )}
                 >
                   <SendHorizontal className="h-3.5 w-3.5" strokeWidth={2.5} />

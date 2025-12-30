@@ -6,8 +6,9 @@ import type { UIMode } from "@/common/types/mode";
 import { cn } from "@/common/lib/utils";
 
 const MODE_OPTIONS: Array<ToggleOption<UIMode>> = [
-  { value: "exec", label: "Exec", activeClassName: "bg-exec-mode text-white" },
+  { value: "chat", label: "Chat", activeClassName: "bg-chat-mode text-white" },
   { value: "plan", label: "Plan", activeClassName: "bg-plan-mode text-white" },
+  { value: "exec", label: "Exec", activeClassName: "bg-exec-mode text-white" },
 ];
 
 const ModeHelpTooltip: React.FC = () => (
@@ -16,13 +17,16 @@ const ModeHelpTooltip: React.FC = () => (
       <HelpIndicator>?</HelpIndicator>
     </TooltipTrigger>
     <TooltipContent align="center" className="max-w-80 whitespace-normal">
-      <strong>Exec Mode:</strong> AI edits files and executes commands
+      <strong>Chat Mode:</strong> Read-only exploration and conversation
       <br />
       <br />
       <strong>Plan Mode:</strong> AI proposes plans but does not edit files
       <br />
       <br />
-      Cycle agents with: {formatKeybind(KEYBINDS.TOGGLE_MODE)}
+      <strong>Exec Mode:</strong> AI edits files and executes commands
+      <br />
+      <br />
+      Cycle modes with: {formatKeybind(KEYBINDS.TOGGLE_MODE)}
     </TooltipContent>
   </Tooltip>
 );
@@ -34,7 +38,7 @@ interface ModeSelectorProps {
 }
 
 /**
- * ModeSelector - UI control for switching between Exec and Plan modes
+ * ModeSelector - UI control for switching between Chat, Plan and Exec modes
  * Renders responsive layouts with different sizing for different container widths
  */
 export const ModeSelector: React.FC<ModeSelectorProps> = ({ mode, onChange, className }) => {
@@ -47,10 +51,12 @@ export const ModeSelector: React.FC<ModeSelectorProps> = ({ mode, onChange, clas
         <div
           className={cn(
             "rounded-md transition-colors",
-            mode === "exec" &&
-              "[&>button:first-of-type]:bg-exec-mode [&>button:first-of-type]:text-white [&>button:first-of-type]:hover:bg-exec-mode-hover",
+            mode === "chat" &&
+              "[&>button:nth-of-type(1)]:bg-chat-mode [&>button:nth-of-type(1)]:text-white [&>button:nth-of-type(1)]:hover:bg-chat-mode-hover",
             mode === "plan" &&
-              "[&>button:last-of-type]:bg-plan-mode [&>button:last-of-type]:text-white [&>button:last-of-type]:hover:bg-plan-mode-hover"
+              "[&>button:nth-of-type(2)]:bg-plan-mode [&>button:nth-of-type(2)]:text-white [&>button:nth-of-type(2)]:hover:bg-plan-mode-hover",
+            mode === "exec" &&
+              "[&>button:nth-of-type(3)]:bg-exec-mode [&>button:nth-of-type(3)]:text-white [&>button:nth-of-type(3)]:hover:bg-exec-mode-hover"
           )}
         >
           <ToggleGroup<UIMode> options={MODE_OPTIONS} value={mode} onChange={onChange} />
