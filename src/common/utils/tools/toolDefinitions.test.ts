@@ -24,6 +24,18 @@ describe("TOOL_DEFINITIONS", () => {
     );
   });
 
+  it("rejects task(kind=bash) tool calls (bash is a separate tool)", () => {
+    const parsed = TOOL_DEFINITIONS.task.schema.safeParse({
+      // Legacy shape; should not validate against the current task schema.
+      kind: "bash",
+      script: "ls",
+      timeout_secs: 100000,
+      run_in_background: false,
+    });
+
+    expect(parsed.success).toBe(false);
+  });
+
   it("discourages repeating plan contents or plan file location after propose_plan", () => {
     expect(TOOL_DEFINITIONS.propose_plan.description).toContain("do not paste the plan contents");
     expect(TOOL_DEFINITIONS.propose_plan.description).toContain("plan file path");

@@ -1,5 +1,6 @@
 import type { Runtime, BackgroundHandle } from "@/node/runtime/Runtime";
 import { spawnProcess } from "./backgroundProcessExecutor";
+import assert from "@/common/utils/assert";
 import { getErrorMessage } from "@/common/utils/errors";
 import { log } from "./log";
 import { AsyncMutex } from "@/node/utils/concurrency/asyncMutex";
@@ -145,6 +146,30 @@ export class BackgroundProcessManager extends EventEmitter<BackgroundProcessMana
   }
 
   /**
+   * Generate a unique background process ID.
+   *
+   * Background process IDs are used as tool-visible identifiers (e.g. task_await with bash: IDs),
+   * so they must be globally unique across all running processes.
+   *
+   * If the base ID is already in use, we append " (1)", " (2)", etc.
+   */
+  generateUniqueProcessId(baseId: string): string {
+    assert(
+      typeof baseId === "string" && baseId.length > 0,
+      "BackgroundProcessManager.generateUniqueProcessId requires a non-empty baseId"
+    );
+
+    let processId = baseId;
+    let suffix = 1;
+    while (this.processes.has(processId)) {
+      processId = `${baseId} (${suffix})`;
+      suffix++;
+    }
+
+    return processId;
+  }
+
+  /**
    * Spawn a new process with background-style infrastructure.
    *
    * All processes are spawned with nohup/setsid and file-based output,
@@ -175,13 +200,7 @@ export class BackgroundProcessManager extends EventEmitter<BackgroundProcessMana
   > {
     log.debug(`BackgroundProcessManager.spawn() called for workspace ${workspaceId}`);
 
-    // Generate unique processId, appending (1), (2), etc. on collision
-    let processId = config.displayName;
-    let suffix = 1;
-    while (this.processes.has(processId)) {
-      processId = `${config.displayName} (${suffix})`;
-      suffix++;
-    }
+    const processId = this.generateUniqueProcessId(config.displayName);
 
     // Spawn via executor with background infrastructure
     // spawnProcess uses runtime.tempDir() internally for output directory
@@ -452,6 +471,7 @@ export class BackgroundProcessManager extends EventEmitter<BackgroundProcessMana
    * @param timeout Seconds to wait for output if none available (default 0 = non-blocking)
    * @param abortSignal Optional signal to abort waiting early (e.g., when stream is cancelled)
    * @param workspaceId Optional workspace ID to check for queued messages (return early to process them)
+   * @param noteToolName Optional tool name to use in polling guidance notes
    */
   async getOutput(
     processId: string,
@@ -459,7 +479,8 @@ export class BackgroundProcessManager extends EventEmitter<BackgroundProcessMana
     filterExclude?: boolean,
     timeout?: number,
     abortSignal?: AbortSignal,
-    workspaceId?: string
+    workspaceId?: string,
+    noteToolName?: string
   ): Promise<
     | {
         success: true;
@@ -669,10 +690,12 @@ export class BackgroundProcessManager extends EventEmitter<BackgroundProcessMana
     const shouldSuggestBetterPattern =
       callCount >= 3 && filterExclude && currentStatus === "running";
 
+    const pollingToolName = noteToolName ?? "bash_output";
+
     let note: string | undefined;
     if (shouldSuggestFilterExclude) {
       note =
-        "STOP POLLING. You've called bash_output 3+ times on this process. " +
+        `STOP POLLING. You've called ${pollingToolName} 3+ times on this process. ` +
         "This wastes tokens and clutters the conversation. " +
         "Instead, make ONE call with: filter='⏳|progress|waiting|\\\\\\.\\\\\\.\\\\\\.', " +
         "filter_exclude=true, timeout_secs=120. This blocks until meaningful output arrives.";

@@ -359,14 +359,28 @@ describeIntegration("ReviewPanel auto refresh (UI + ORPC + live LLM)", () => {
       try {
         const refreshButton = await setupReviewPanel(view, metadata, workspaceId);
 
-        // Use LLM to make a file change via bash tool
         const AUTO_MARKER = "AUTO_REFRESH_MARKER";
+
+        // Make a direct FS change (no tool-call events). The scheduled/tool-completion
+        // refresh should still pick this up.
+        const bashRes = await env.orpc.workspace.executeBash({
+          workspaceId,
+          script: `echo "${AUTO_MARKER}" >> README.md`,
+        });
+        expect(bashRes.success).toBe(true);
+        if (!bashRes.success) return;
+        expect(bashRes.data.success).toBe(true);
+
+        // Without a scheduled refresh, the UI should not pick this up yet.
+        expect(view.queryByText(new RegExp(AUTO_MARKER))).toBeNull();
+
+        // Trigger a tool-call-end event via bash.
         const FORCE_BASH: ToolPolicy = [{ regex_match: "bash", action: "require" }];
 
         const autoRes = await sendMessageWithModel(
           env,
           workspaceId,
-          `Use bash to append a new line containing "${AUTO_MARKER}" to README.md.`,
+          'Use bash to run: echo ping. Set display_name="ping" and timeout_secs=30. Do not modify files.',
           HAIKU_MODEL,
           {
             mode: "exec",

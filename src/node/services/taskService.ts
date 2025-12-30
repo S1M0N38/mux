@@ -102,6 +102,15 @@ interface PendingTaskStartWaiter {
   cleanup: () => void;
 }
 
+interface CompletedAgentReportCacheEntry {
+  reportMarkdown: string;
+  title?: string;
+  expiresAtMs: number;
+  // Ancestor workspace IDs captured when the report was cached.
+  // Used to keep descendant-scope checks working even if the task workspace is cleaned up.
+  ancestorWorkspaceIds: string[];
+}
+
 function isToolCallEndEvent(value: unknown): value is ToolCallEndEvent {
   return (
     typeof value === "object" &&
@@ -181,10 +190,7 @@ export class TaskService {
   private readonly foregroundAwaitCountByWorkspaceId = new Map<string, number>();
   // Cache completed reports so callers can retrieve them even after the task workspace is removed.
   // Bounded by TTL + max entries (see COMPLETED_REPORT_CACHE_*).
-  private readonly completedReportsByTaskId = new Map<
-    string,
-    { reportMarkdown: string; title?: string; expiresAtMs: number }
-  >();
+  private readonly completedReportsByTaskId = new Map<string, CompletedAgentReportCacheEntry>();
   private readonly remindedAwaitingReport = new Set<string>();
 
   constructor(
@@ -1058,11 +1064,23 @@ export class TaskService {
     const cfg = this.config.loadConfigOrDefault();
     const parentById = this.buildAgentTaskIndex(cfg).parentById;
 
+    const nowMs = Date.now();
+    this.cleanupExpiredCompletedReports(nowMs);
+
     const result: string[] = [];
     for (const taskId of taskIds) {
       if (typeof taskId !== "string" || taskId.length === 0) continue;
       if (this.isDescendantAgentTaskUsingParentById(parentById, ancestorWorkspaceId, taskId)) {
         result.push(taskId);
+        continue;
+      }
+
+      // Preserve scope checks for tasks whose workspace was cleaned up after completion.
+      const cached = this.completedReportsByTaskId.get(taskId);
+      if (cached && cached.expiresAtMs > nowMs) {
+        if (cached.ancestorWorkspaceIds.includes(ancestorWorkspaceId)) {
+          result.push(taskId);
+        }
       }
     }
 
@@ -1099,7 +1117,20 @@ export class TaskService {
 
     const cfg = this.config.loadConfigOrDefault();
     const parentById = this.buildAgentTaskIndex(cfg).parentById;
-    return this.isDescendantAgentTaskUsingParentById(parentById, ancestorWorkspaceId, taskId);
+    if (this.isDescendantAgentTaskUsingParentById(parentById, ancestorWorkspaceId, taskId)) {
+      return true;
+    }
+
+    // The task workspace may have been removed after it reported (cleanup). Preserve scope checks
+    // by consulting the completed-report cache, which tracks the task's ancestor chain.
+    const nowMs = Date.now();
+    this.cleanupExpiredCompletedReports(nowMs);
+    const cached = this.completedReportsByTaskId.get(taskId);
+    if (cached && cached.expiresAtMs > nowMs) {
+      return cached.ancestorWorkspaceIds.includes(ancestorWorkspaceId);
+    }
+
+    return false;
   }
 
   private isDescendantAgentTaskUsingParentById(
@@ -1121,6 +1152,25 @@ export class TaskService {
   }
 
   // --- Internal orchestration ---
+
+  private listAncestorWorkspaceIdsUsingParentById(
+    parentById: Map<string, string>,
+    taskId: string
+  ): string[] {
+    const ancestors: string[] = [];
+
+    let current = taskId;
+    for (let i = 0; i < 32; i++) {
+      const parent = parentById.get(current);
+      if (!parent) return ancestors;
+      ancestors.push(parent);
+      current = parent;
+    }
+
+    throw new Error(
+      `listAncestorWorkspaceIdsUsingParentById: possible parentWorkspaceId cycle starting at ${taskId}`
+    );
+  }
 
   private listAgentTaskWorkspaces(
     config: ReturnType<Config["loadConfigOrDefault"]>
@@ -1892,10 +1942,16 @@ export class TaskService {
   private resolveWaiters(taskId: string, report: { reportMarkdown: string; title?: string }): void {
     const nowMs = Date.now();
     this.cleanupExpiredCompletedReports(nowMs);
+
+    const cfg = this.config.loadConfigOrDefault();
+    const parentById = this.buildAgentTaskIndex(cfg).parentById;
+    const ancestorWorkspaceIds = this.listAncestorWorkspaceIdsUsingParentById(parentById, taskId);
+
     this.completedReportsByTaskId.set(taskId, {
       reportMarkdown: report.reportMarkdown,
       title: report.title,
       expiresAtMs: nowMs + COMPLETED_REPORT_CACHE_TTL_MS,
+      ancestorWorkspaceIds,
     });
     this.enforceCompletedReportCacheLimit();
 
@@ -2093,6 +2149,7 @@ export class TaskService {
     }
 
     const toolCallId = pendingParts[0].toolCallId;
+
     const parsedInput = TaskToolArgsSchema.safeParse(pendingParts[0].input);
     if (!parsedInput.success) {
       log.error("tryFinalizePendingTaskToolCallInPartial: task input validation failed", {

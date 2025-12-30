@@ -3,6 +3,12 @@ import React from "react";
 import { View, Text, ScrollView, StyleSheet, Pressable } from "react-native";
 import { Link } from "expo-router";
 import { parsePatch } from "diff";
+import {
+  coerceBashToolResult,
+  convertTaskBashResult,
+} from "@/common/utils/tools/taskResultConverters";
+import { isTaskBashArgs, isTaskBashArgsFromUnknown } from "@/common/utils/tools/taskToolTypeGuards";
+import { resolveBashDisplayName } from "@/common/utils/tools/bashDisplayName";
 import type { DisplayedMessage } from "@/common/types/message";
 import {
   FILE_EDIT_TOOL_NAMES,
@@ -87,6 +93,9 @@ export function renderSpecializedToolCard(message: ToolDisplayedMessage): ToolCa
     case "task":
       if (!isTaskToolArgs(message.args)) {
         return null;
+      }
+      if (isTaskBashArgs(message.args)) {
+        return buildTaskBashViewModel(message as ToolDisplayedMessage & { args: TaskToolArgs });
       }
       return buildTaskViewModel(message as ToolDisplayedMessage & { args: TaskToolArgs });
     case "task_await":
@@ -399,6 +408,69 @@ function BashBackgroundTerminateContent({
   }
 
   return <ThemedText>{result.message}</ThemedText>;
+}
+
+function buildTaskBashViewModel(
+  message: ToolDisplayedMessage & { args: TaskToolArgs }
+): ToolCardViewModel {
+  const args = message.args;
+  if (!isTaskBashArgs(args)) {
+    return {
+      icon: "💻",
+      caption: "bash",
+      title: "bash",
+      content: <ThemedText variant="muted">Invalid bash task args</ThemedText>,
+      defaultExpanded: true,
+    };
+  }
+
+  const displayName = resolveBashDisplayName(args.script, args.display_name);
+
+  const bashArgs: BashToolArgs = {
+    script: args.script,
+    timeout_secs: args.timeout_secs,
+    run_in_background: Boolean(args.run_in_background),
+    display_name: displayName,
+  };
+
+  const taskResult = coerceTaskToolResult(message.result);
+  const bashResult = convertTaskBashResult(taskResult, { legacySuccessCheckInclErrorLine: true });
+
+  const preview = truncate(args.script.trim().split("\n")[0], 80) || "bash";
+
+  const metadata: MetadataItem[] = [];
+  metadata.push({ label: "name", value: displayName });
+
+  if (typeof args.timeout_secs === "number") {
+    metadata.push({ label: "timeout", value: `${args.timeout_secs}s` });
+  }
+  if (bashResult && bashResult.exitCode !== undefined) {
+    metadata.push({ label: "exit code", value: String(bashResult.exitCode) });
+  }
+  if (bashResult && "truncated" in bashResult && bashResult.truncated) {
+    metadata.push({
+      label: "truncated",
+      value: bashResult.truncated.reason,
+      tone: "warning",
+    });
+  }
+
+  return {
+    icon: "💻",
+    caption: "bash",
+    title: preview,
+    summary: metadata.length > 0 ? <MetadataList items={metadata} /> : undefined,
+    content: (
+      <BashToolContent
+        args={bashArgs}
+        result={bashResult}
+        status={message.status}
+        toolCallId={message.toolCallId}
+      />
+    ),
+    defaultExpanded:
+      message.status !== "completed" || Boolean(bashResult && bashResult.success === false),
+  };
 }
 
 function buildTaskViewModel(
@@ -1503,8 +1575,15 @@ function isBashBackgroundTerminateArgs(value: unknown): value is BashBackgroundT
 }
 
 function isTaskToolArgs(value: unknown): value is TaskToolArgs {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+
+  if (isTaskBashArgsFromUnknown(value)) {
+    return true;
+  }
+
   return (
-    Boolean(value && typeof value === "object") &&
     typeof (value as TaskToolArgs).prompt === "string" &&
     typeof (value as TaskToolArgs).title === "string" &&
     typeof (value as TaskToolArgs).subagent_type === "string"
@@ -1542,18 +1621,6 @@ function isAgentReportToolArgs(value: unknown): value is AgentReportToolArgs {
 }
 function isFileEditArgsUnion(value: unknown): value is FileEditArgsUnion {
   return Boolean(value && typeof (value as FileEditArgsUnion).file_path === "string");
-}
-
-function coerceBashToolResult(value: unknown): BashToolResult | null {
-  if (
-    value &&
-    typeof value === "object" &&
-    "success" in value &&
-    typeof (value as BashToolResult).success === "boolean"
-  ) {
-    return value as BashToolResult;
-  }
-  return null;
 }
 
 function coerceWebFetchToolResult(value: unknown): WebFetchToolResult | null {

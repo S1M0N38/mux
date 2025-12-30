@@ -98,7 +98,7 @@ const TaskAgentIdSchema = z.preprocess(
   AgentIdSchema
 );
 
-export const TaskToolArgsSchema = z
+const TaskToolAgentArgsSchema = z
   .object({
     // Prefer agentId. subagent_type is a deprecated alias for backwards compatibility.
     agentId: TaskAgentIdSchema.optional(),
@@ -130,6 +130,8 @@ export const TaskToolArgsSchema = z
       return;
     }
   });
+
+export const TaskToolArgsSchema = TaskToolAgentArgsSchema;
 
 export const TaskToolQueuedResultSchema = z
   .object({
@@ -166,17 +168,44 @@ export const TaskAwaitToolArgsSchema = z
       .describe(
         "List of task IDs to await. When omitted, waits for all active descendant tasks of the current workspace."
       ),
-    timeout_secs: z
-      .number()
-      .positive()
+    filter: z
+      .string()
       .optional()
       .describe(
+        "Optional regex to filter bash task output lines. By default, only matching lines are returned. " +
+          "When filter_exclude is true, matching lines are excluded instead. " +
+          "Non-matching lines are discarded and cannot be retrieved later."
+      ),
+    filter_exclude: z
+      .boolean()
+      .optional()
+      .describe(
+        "When true, lines matching 'filter' are excluded instead of kept. " +
+          "Requires 'filter' to be set."
+      ),
+    timeout_secs: z
+      .number()
+      .min(0)
+      .optional()
+      .default(600)
+      .describe(
         "Maximum time to wait in seconds for each task. " +
+          "For bash tasks, this waits for NEW output (or process exit). " +
           "If exceeded, the result returns status=queued|running|awaiting_report (task is still active). " +
-          "Optional, defaults to 10 minutes."
+          "Defaults to 600 seconds (10 minutes) if not specified. " +
+          "Set to 0 for a non-blocking status check."
       ),
   })
-  .strict();
+  .strict()
+  .superRefine((args, ctx) => {
+    if (args.filter_exclude && !args.filter) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "filter_exclude requires filter to be set",
+        path: ["filter_exclude"],
+      });
+    }
+  });
 
 export const TaskAwaitToolCompletedResultSchema = z
   .object({
@@ -184,6 +213,10 @@ export const TaskAwaitToolCompletedResultSchema = z
     taskId: z.string(),
     reportMarkdown: z.string(),
     title: z.string().optional(),
+    output: z.string().optional(),
+    elapsed_ms: z.number().optional(),
+    exitCode: z.number().optional(),
+    note: z.string().optional(),
   })
   .strict();
 
@@ -191,6 +224,9 @@ export const TaskAwaitToolActiveResultSchema = z
   .object({
     status: z.enum(["queued", "running", "awaiting_report"]),
     taskId: z.string(),
+    output: z.string().optional(),
+    elapsed_ms: z.number().optional(),
+    note: z.string().optional(),
   })
   .strict();
 
@@ -384,12 +420,13 @@ export const TOOL_DEFINITIONS = {
             "Use for processes running >5s (dev servers, builds, file watchers). " +
             "Do NOT use for quick commands (<5s), interactive processes (no stdin support), " +
             "or processes requiring real-time output (use foreground with larger timeout instead). " +
-            "Returns immediately with process_id. " +
-            "Read output with bash_output (returns only new output since last check). " +
-            "Terminate with bash_background_terminate using the process_id. " +
+            "Returns immediately with a taskId (bash:<processId>) and backgroundProcessId. " +
+            "Read output with task_await (returns only new output since last check). " +
+            "Terminate with task_terminate using the taskId. " +
+            "List active tasks with task_list. " +
             "Process persists until timeout_secs expires, terminated, or workspace is removed." +
             "\\n\\nFor long-running tasks like builds or compilations, prefer background mode to continue productive work in parallel. " +
-            "Check back periodically with bash_output rather than blocking on completion."
+            "Check back periodically with task_await rather than blocking on completion."
         ),
       display_name: z
         .string()
@@ -542,15 +579,20 @@ export const TOOL_DEFINITIONS = {
   },
   task: {
     description:
-      "Spawn a sub-agent task in a child workspace. " +
-      'Use this to delegate work to specialized presets like "explore" (read-only investigation) or "exec" (general-purpose coding in a child workspace). ' +
-      "If run_in_background is false, this tool blocks until the sub-agent calls agent_report, then returns the report. " +
-      "If run_in_background is true, you can await it later with task_await.",
+      "Spawn a sub-agent task (child workspace). " +
+      "\n\nProvide subagent_type, prompt, title, run_in_background. " +
+      "\n\nIf run_in_background is false, waits for the sub-agent to finish and returns a completed reportMarkdown. " +
+      "If run_in_background is true, returns a queued/running taskId; use task_await to wait for completion, task_list to rediscover active tasks, and task_terminate to stop it. " +
+      "Use the bash tool to run shell commands.",
     schema: TaskToolArgsSchema,
   },
   task_await: {
     description:
-      "Wait for one or more sub-agent tasks to finish and return their reports. " +
+      "Wait for one or more tasks to produce output. " +
+      "Agent tasks return reports when completed. " +
+      "Bash tasks return incremental output while running and a final reportMarkdown when they exit. " +
+      "For bash tasks, you may optionally pass filter/filter_exclude to include/exclude output lines by regex. " +
+      "WARNING: when using filter, non-matching lines are permanently discarded. " +
       "Use this tool to WAIT; do not poll task_list in a loop to wait for task completion (that is misuse and wastes tool calls). " +
       "This is similar to Promise.allSettled(): you always get per-task results. " +
       "Possible statuses: completed, queued, running, awaiting_report, not_found, invalid_scope, error.",
@@ -558,15 +600,16 @@ export const TOOL_DEFINITIONS = {
   },
   task_terminate: {
     description:
-      "Terminate one or more sub-agent tasks immediately. " +
-      "This stops their AI streams and deletes their workspaces (best-effort). " +
+      "Terminate one or more tasks immediately (sub-agent tasks or background bash tasks). " +
+      "For sub-agent tasks, this stops their AI streams and deletes their workspaces (best-effort). " +
       "No report will be delivered; any in-progress work is discarded. " +
       "If the task has descendant sub-agent tasks, they are terminated too.",
     schema: TaskTerminateToolArgsSchema,
   },
   task_list: {
     description:
-      "List descendant sub-agent tasks for the current workspace, including their status and metadata. " +
+      "List descendant tasks for the current workspace, including status + metadata. " +
+      "This includes sub-agent tasks and background bash tasks. " +
       "Use this after compaction or interruptions to rediscover which tasks are still active. " +
       "This is a discovery tool, NOT a waiting mechanism: if you need to wait for tasks to finish, call task_await (optionally omit task_ids to await all active descendant tasks).",
     schema: TaskListToolArgsSchema,
@@ -649,6 +692,7 @@ export const TOOL_DEFINITIONS = {
   },
   bash_output: {
     description:
+      'DEPRECATED: use task_await instead (pass bash-prefixed taskId like "bash:<processId>"). ' +
       "Retrieve output from a running or completed background bash process. " +
       "Returns only NEW output since the last check (incremental). " +
       "Returns stdout and stderr output along with process status. " +
@@ -689,6 +733,7 @@ export const TOOL_DEFINITIONS = {
   },
   bash_background_list: {
     description:
+      "DEPRECATED: use task_list instead. " +
       "List all background processes started with bash(run_in_background=true). " +
       "Returns process_id, status, script for each process. " +
       "Use to find process_id for termination or check output with bash_output.",
@@ -696,6 +741,7 @@ export const TOOL_DEFINITIONS = {
   },
   bash_background_terminate: {
     description:
+      "DEPRECATED: use task_terminate instead. " +
       "Terminate a background process started with bash(run_in_background=true). " +
       "Use process_id from the original bash response or from bash_background_list. " +
       "Sends SIGTERM, waits briefly, then SIGKILL if needed. " +
@@ -759,6 +805,7 @@ export const BashToolResultSchema = z.union([
     output: z.string(),
     exitCode: z.literal(0),
     wall_duration_ms: z.number(),
+    taskId: z.string(),
     backgroundProcessId: z.string(),
   }),
   // Failure
@@ -998,10 +1045,6 @@ export function getAvailableTools(
 
   // Base tools available for all models
   const baseTools = [
-    "bash",
-    "bash_output",
-    "bash_background_list",
-    "bash_background_terminate",
     "file_read",
     "agent_skill_read",
     "agent_skill_read_file",
@@ -1011,6 +1054,7 @@ export function getAvailableTools(
     // ask_user_question only available in plan mode
     ...(mode === "plan" ? ["ask_user_question"] : []),
     "propose_plan",
+    "bash",
     "task",
     "task_await",
     "task_terminate",

@@ -446,11 +446,15 @@ export class WorkspaceStore {
       }
 
       applyWorkspaceChatEventToAggregator(aggregator, data);
+
       this.states.bump(workspaceId);
       this.consumerManager.scheduleCalculation(workspaceId, aggregator);
 
-      // Track file-modifying tools for ReviewPanel diff refresh
-      if (toolCallEnd.toolName.startsWith("file_edit_") || toolCallEnd.toolName === "bash") {
+      // Track file-modifying tools for ReviewPanel diff refresh.
+      const shouldTriggerReviewPanelRefresh =
+        toolCallEnd.toolName.startsWith("file_edit_") || toolCallEnd.toolName === "bash";
+
+      if (shouldTriggerReviewPanelRefresh) {
         this.fileModifyingToolMs.set(workspaceId, Date.now());
         this.fileModifyingToolSubs.bump(workspaceId);
       }
